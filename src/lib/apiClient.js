@@ -1,6 +1,8 @@
 // Standalone API Client
 // Provides persistence for candidates, interview sessions, and app settings in both Browser (localStorage) and Node (Memory).
 
+import { seedCandidates } from "./seedCandidates";
+
 const memoryStore = new Map();
 
 const STORAGE_KEYS = {
@@ -111,7 +113,12 @@ export const apiClient = {
 
   // Candidates
   getCandidates() {
-    return localStore.getItem(STORAGE_KEYS.candidates, []);
+    const list = localStore.getItem(STORAGE_KEYS.candidates, null);
+    if (!list || !Array.isArray(list) || list.length === 0) {
+      localStore.setItem(STORAGE_KEYS.candidates, seedCandidates);
+      return seedCandidates;
+    }
+    return list;
   },
 
   saveCandidates(candidates) {

@@ -36,7 +36,7 @@ function apiInterviewMiddleware() {
 }
 
 export default defineConfig({
-  base: './',
+  base: process.env.VITE_BASE_URL || '/Interview-Agent-AI/',
   plugins: [
     react(),
     tailwindcss(),
