@@ -229,7 +229,22 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     if (skipped) {
       reply = `No problem at all — it's completely okay to pass on a specific topic. Let's move on to the next module.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     } else {
-      reply = `Great explanation regarding ${nextQ.topic}.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
+      const text = (userMessage || "").trim();
+      const wordCount = text ? text.split(/\s+/).length : 0;
+      const detailedFeedback = [
+        `That's a thorough breakdown regarding ${nextQ.topic}. Your technical reasoning covers the critical operational trade-offs well.`,
+        `Good technical insights on ${nextQ.topic}. I appreciate how you structured the implementation and validation steps.`,
+        `Solid explanation of ${nextQ.topic}. You've highlighted the essential architectural decisions and edge cases clearly.`,
+        `Clear and structured response regarding ${nextQ.topic}. That demonstrates strong practical awareness for a production system.`,
+      ];
+      const briefFeedback = [
+        `Got it — thank you for that overview on ${nextQ.topic}.`,
+        `Makes sense. Good summary of your approach to ${nextQ.topic}.`,
+        `Understood. That gives me a clear picture of your work on ${nextQ.topic}.`,
+      ];
+      const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
+      const chosenFeedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
+      reply = `${chosenFeedback}\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     }
   }
 

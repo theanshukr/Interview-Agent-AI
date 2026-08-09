@@ -13,14 +13,18 @@ import {
 import { Check } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 
+import { apiClient } from "@/lib/apiClient";
+
 const DEFAULTS = {
-  model: "gpt_5_mini",
+  model: "gemini",
+  llmProvider: "gemini",
+  geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || "",
   temperature: 30, // 0-100 -> 0.0-1.0
   difficulty: "5",
   duration: "30",
   feedbackDetail: "standard",
   language: "en",
-  theme: "light",
+  theme: "dark",
 };
 
 function Field({ label, hint, children }) {
@@ -40,8 +44,8 @@ export default function Settings() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("ia_settings");
-      if (raw) setS({ ...DEFAULTS, ...JSON.parse(raw) });
+      const stored = apiClient.getSettings();
+      setS({ ...DEFAULTS, ...stored, model: stored.llmProvider || stored.model || "gemini" });
     } catch {
       /* ignore */
     }
@@ -53,7 +57,8 @@ export default function Settings() {
   }
 
   function commit() {
-    localStorage.setItem("ia_settings", JSON.stringify(s));
+    const updated = { ...s, llmProvider: s.model };
+    apiClient.saveSettings(updated);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }

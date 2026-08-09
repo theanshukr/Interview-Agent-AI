@@ -80,9 +80,11 @@ export const apiClient = {
 
   // Settings
   getSettings() {
-    return localStore.getItem(STORAGE_KEYS.settings, {
+    const envKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+    const stored = localStore.getItem(STORAGE_KEYS.settings, {});
+    return {
       llmProvider: "gemini", // "built-in" | "gemini" | "ollama" | "openai"
-      geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || "",
+      geminiApiKey: stored?.geminiApiKey || envKey,
       geminiModel: "gemini-1.5-flash",
       ollamaUrl: "http://localhost:11434",
       ollamaModel: "qwen2.5-coder",
@@ -91,7 +93,8 @@ export const apiClient = {
       speechEnabled: false,
       speechRate: 1.0,
       theme: "dark",
-    });
+      ...stored,
+    };
   },
 
   saveSettings(newSettings) {

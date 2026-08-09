@@ -352,12 +352,37 @@ function generateAdaptiveQuestion(candidate, questionNumber, currentDifficulty, 
 
 function extractKeyConcept(lastMessage) {
   const text = (lastMessage || "").toLowerCase();
-  if (text.includes("vector") || text.includes("embedding")) return "vector embeddings and semantic search";
-  if (text.includes("fastapi") || text.includes("react") || text.includes("cors")) return "API architecture and frontend integration";
-  if (text.includes("prompt") || text.includes("json") || text.includes("schema")) return "prompt engineering and structured schemas";
-  if (text.includes("docker") || text.includes("kubernetes") || text.includes("container")) return "containerized deployment and infrastructure";
+  if (text.includes("vector") || text.includes("embedding") || text.includes("cosine")) return "vector embeddings and semantic search";
+  if (text.includes("fastapi") || text.includes("react") || text.includes("cors") || text.includes("vite")) return "API integration and frontend architecture";
+  if (text.includes("prompt") || text.includes("json") || text.includes("schema")) return "prompt engineering and structured outputs";
+  if (text.includes("docker") || text.includes("kubernetes") || text.includes("container") || text.includes("poetry")) return "reproducible environment setup and containerization";
   if (text.includes("mcp") || text.includes("agent") || text.includes("tool")) return "agentic tool orchestration";
+  if (text.includes("rag") || text.includes("chunk") || text.includes("retrieval")) return "retrieval augmented generation (RAG)";
   return "your practical implementation approach";
+}
+
+function generateNaturalFallbackReply(userMessage, nextQNum, targetQuestions, nextQ) {
+  const text = (userMessage || "").trim();
+  const wordCount = text ? text.split(/\s+/).length : 0;
+  const concept = extractKeyConcept(text);
+
+  const detailedFeedback = [
+    `That's a thorough breakdown regarding ${concept}. Your technical reasoning covers the critical operational trade-offs well.`,
+    `Good technical insights on ${concept}. I appreciate how you structured the implementation and validation steps.`,
+    `Solid explanation of ${concept}. You've highlighted the essential architectural decisions and edge cases clearly.`,
+    `Clear and structured response regarding ${concept}. That demonstrates strong practical awareness for a production system.`,
+  ];
+
+  const briefFeedback = [
+    `Got it — thank you for that overview on ${concept}.`,
+    `Makes sense. Good summary of your approach to ${concept}.`,
+    `Understood. That gives me a clear picture of your work on ${concept}.`,
+  ];
+
+  const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
+  const chosenFeedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
+
+  return `${chosenFeedback}\n\nMoving to **Question ${nextQNum} of ${targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
 }
 
 async function callGeminiAPI(systemPrompt, userPrompt, apiKey) {
@@ -772,8 +797,7 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     } else if (skipped) {
       reply = `No problem at all — it's completely okay to pass on a specific topic. Let's move on to the next module.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     } else {
-      const concept = extractKeyConcept(payload.message);
-      reply = `Great explanation regarding ${concept}.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
+      reply = generateNaturalFallbackReply(payload.message, nextQNum, session.targetQuestions, nextQ);
     }
   }
 

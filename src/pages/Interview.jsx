@@ -91,15 +91,18 @@ export default function Interview() {
   const [expired, setExpired] = useState(false);
   const expireHandledRef = useRef(false);
 
+  const busyRef = useRef(false);
   const scrollRef = useRef(null);
   const streamTimer = useRef(null);
 
-  function applySession(s) {
+  function applySession(s, skipMessages = false) {
     if (!s) return;
     setStatus(s.status || "active");
     setInterviewEndTime(s.interviewEndTime || null);
     setPausedRemainingMs(s.pausedRemainingMs || null);
-    setMessages(s.messages || []);
+    if (!skipMessages) {
+      setMessages(s.messages || []);
+    }
     setCandidate(s.candidate || null);
     setQuestionNumber(s.questionCount || s.questionNumber || 0);
     setCurrentDay(s.currentDay);
@@ -141,7 +144,7 @@ export default function Interview() {
   useEffect(() => {
     const sync = () => {
       getSession(sessionId).then((s) => {
-        if (s && s.status !== "completed") applySession(s);
+        if (s && s.status !== "completed") applySession(s, busyRef.current);
       });
     };
     window.addEventListener("sessions-changed", sync);
@@ -209,8 +212,9 @@ export default function Interview() {
   async function handleSend(e) {
     e?.preventDefault();
     const text = input.trim();
-    if (!text || busy || expired) return;
+    if (!text || busyRef.current || expired) return;
     setInput("");
+    busyRef.current = true;
     setBusy(true);
     setError(null);
 
@@ -222,7 +226,13 @@ export default function Interview() {
       const fullReply = data.done ? "That wraps up the interview. Generating your feedback — one moment." : data.reply;
       await streamReply(fullReply);
 
-      setMessages((prev) => [...prev, { role: "interviewer", content: fullReply }]);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === "interviewer" && last.content === fullReply) {
+          return prev;
+        }
+        return [...prev, { role: "interviewer", content: fullReply }];
+      });
       setQuestionNumber(data.questionNumber ?? questionNumber + 1);
       if (data.currentDay) setCurrentDay(data.currentDay);
       if (data.currentTopic) setCurrentTopic(data.currentTopic);
@@ -241,6 +251,7 @@ export default function Interview() {
       toast({ title: "Interview interrupted", description: friendly, variant: "destructive" });
       setMessages((prev) => prev.filter((m) => m !== candidateMsg));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
