@@ -3,9 +3,6 @@
 > **Curriculum-Aware Technical Interview & Candidate Evaluation Platform**
 > Built with React 18, Vite, Node/Express, Tailwind CSS, Recharts, and Lucide Icons.
 
-[![Live Demo](https://img.shields.io/badge/LIVE_DEMO-Click_Here_to_Launch-brightgreen?style=for-the-badge&logo=github)](https://theanshukr.github.io/Interview-Agent-AI/)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-blue?style=for-the-badge&logo=github)](https://github.com/theanshukr/Interview-Agent-AI)
-
 ---
 
 ## 🔗 Quick Links & Live Demo
