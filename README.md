@@ -19,6 +19,22 @@
 
 ---
 
+## 📋 Hackathon Requirements & Compliance Matrix
+
+| Hackathon Requirement | Status | Project Implementation |
+| :--- | :---: | :--- |
+| **1. 31-Day AI Curriculum Grounding** | ✅ **100% Implemented** | Grounded directly in `curriculum.json` covering RAG, Vector Databases, Prompt Engineering, Agentic AI, MCP, Docker/K8s, and Production AI. |
+| **2. Candidate Profile Integration** | ✅ **100% Implemented** | Personalizes interview starting points and difficulty using candidate profile missions, skipped topics, and attempts. |
+| **3. Conversational Multi-turn Dialogue** | ✅ **100% Implemented** | Natural, continuous dialogue with Atlas (the AI Interviewer) with contextual memory across turns. |
+| **4. Min 8 Questions across 4+ Days** | ✅ **100% Implemented** | Conducts 8-question interviews spanning 8 distinct curriculum days (Day 1, 3, 7, 10, 12, 16, 23, 28). |
+| **5. Adaptive Question Progression** | ✅ **100% Implemented** | Scales difficulty (1–10) dynamically based on technical depth (+1 for strong answers, -1 for brief answers, -2 for skips). |
+| **6. Intent Classification** | ✅ **100% Implemented** | Classifies responses as `VALID_ANSWER`, `SKIP` (no unfair penalty), or `GIBBERISH` (does not waste question count). |
+| **7. Structured 7-Competency Feedback** | ✅ **100% Implemented** | Synthesizes readiness score %, strengths, gaps, next steps, 7-dimension Recharts radar chart, and PDF downloads. |
+| **8. Spec Endpoint (`POST /api/interview`)** | ✅ **100% Implemented** | Node/Express backend on port 3001 compliant with literal `technical-spec.md` request/response specs. |
+| **9. Session Timer & Integrity** | ✅ **100% Implemented** | 60-minute server-enforced timer expiration and candidate ID validation to prevent spoofing. |
+
+---
+
 ## ✨ Core Features
 
 - 🧠 **Curriculum-Grounded AI Interviewer**: Grounded directly in `hackethon document/curriculum.json` with dynamic intent detection (`VALID_ANSWER`, `SKIP`, `GIBBERISH`).
