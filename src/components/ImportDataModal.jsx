@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, Upload, X, FileJson, FileSpreadsheet, CheckCircle2, Loader2 } from "lucide-react";
 import { normalizeCandidateData } from "@/lib/candidateData";
 import { bulkCreateCandidates, saveCandidate } from "@/lib/interviewApi";
-import { seedCandidates } from "@/lib/seedCandidates";
 import { cn } from "@/lib/utils";
 
 const COHORT = "ai-eng-v1";
@@ -58,27 +57,60 @@ function parseCsvLine(line) {
   return out.map((s) => s.trim());
 }
 
-function normalizeImported(raw) {
-  const arr = Array.isArray(raw) ? raw : raw?.candidates ? raw.candidates : [];
-  return arr
-    .map((item) => normalizeCandidateData(item))
-    .filter((candidate) => candidate.candidateId && candidate.name)
-    .map((candidate) => ({ ...candidate, cohort: COHORT }));
+function parseOptionalJson(value) {
+  if (!value) return undefined;
+  const trimmed = String(value).trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return { __invalidJson: true };
+  }
+}
+
+function validateImported(records) {
+  const valid = [];
+  const invalid = [];
+  (Array.isArray(records) ? records : []).forEach((raw, index) => {
+    const reasons = [...(raw?._reasons || [])];
+    const candidateId = String(raw?.member?.candidateId || raw?.member?.id || raw?.candidateId || raw?.id || "").trim();
+    const name = String(raw?.member?.name || raw?.name || "").trim();
+    if (!candidateId) reasons.push("missing candidateId/id");
+    if (!name) reasons.push("missing name");
+    if (reasons.length) {
+      invalid.push({ index: index + 1, reasons });
+      return;
+    }
+    valid.push({ ...normalizeCandidateData(raw), cohort: COHORT });
+  });
+  return { valid, invalid };
+}
+
+function formatInvalidSummary(invalid) {
+  if (!invalid.length) return "";
+  const details = invalid
+    .slice(0, 3)
+    .map((r) => `Record ${r.index}: ${r.reasons.join(", ")}`)
+    .join("; ");
+  const more = invalid.length > 3 ? ` (and ${invalid.length - 3} more)` : "";
+  return `${invalid.length} invalid record${invalid.length === 1 ? "" : "s"} skipped — ${details}${more}.`;
 }
 
 export default function ImportDataModal({ open, onClose, onImported }) {
-  const [tab, setTab] = useState("manual");
+  const [tab, setTab] = useState("upload");
   const [form, setForm] = useState(emptyForm());
   const [parsed, setParsed] = useState(null);
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [warn, setWarn] = useState(null);
   const [done, setDone] = useState(null);
   const fileRef = useRef(null);
 
   React.useEffect(() => {
     if (open) {
       setError(null);
+      setWarn(null);
       setDone(null);
       setParsed(null);
       setFileName("");
@@ -147,18 +179,29 @@ export default function ImportDataModal({ open, onClose, onImported }) {
 
   async function handleFile(file) {
     setError(null);
+    setWarn(null);
     setDone(null);
     setFileName(file.name);
+    setBusy(true);
     try {
       const text = await file.text();
       let records = [];
       if (file.name.toLowerCase().endsWith(".json")) {
         const json = JSON.parse(text);
-        records = normalizeImported(json);
+        records = Array.isArray(json) ? json : json?.candidates;
+        if (!Array.isArray(records)) {
+          throw new Error("JSON must contain an array of candidates or a { candidates: [...] } object.");
+        }
       } else {
         const rows = parseCsv(text);
-        records = rows
-          .map((r) => ({
+        records = rows.map((r) => {
+          const missions = parseOptionalJson(r.missions);
+          const signals = parseOptionalJson(r.signals);
+          return {
+            _reasons: [
+              ...(missions?.__invalidJson ? ["missions column is not valid JSON"] : []),
+              ...(signals?.__invalidJson ? ["signals column is not valid JSON"] : []),
+            ],
             candidateId: String(r.candidateId || r.id || ""),
             name: r.name || "",
             jobRole: r.jobRole || "",
@@ -166,38 +209,34 @@ export default function ImportDataModal({ open, onClose, onImported }) {
             yearsExperience: Number(r.yearsExperience) || 0,
             education: r.education || "",
             status: r.status || "COMPLETED",
-            missions: r.missions ? (typeof r.missions === "string" ? JSON.parse(r.missions) : r.missions) : [],
-            signals: r.signals ? (typeof r.signals === "string" ? JSON.parse(r.signals) : r.signals) : {},
-          }))
-          .filter((r) => r.candidateId && r.name);
-        records = normalizeImported(records);
+            missions: missions?.__invalidJson ? [] : missions || [],
+            signals: signals?.__invalidJson ? {} : signals || {},
+          };
+        });
       }
       if (!records.length) {
-        setError("No valid candidates found in the file. Ensure each has an id/candidateId and name.");
+        setError("The file does not contain any candidate records.");
         setParsed(null);
         return;
       }
-      setParsed(records);
-    } catch (e) {
-      setError("Could not parse file: " + (e?.message || "invalid format"));
-      setParsed(null);
-    }
-  }
-
-  async function importParsed() {
-    if (!parsed?.length) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await bulkCreateCandidates(parsed);
-      const count = Array.isArray(created) ? created.length : parsed.length;
-      setDone(`${count} candidate${count === 1 ? "" : "s"} imported successfully.`);
-      setParsed(null);
-      setFileName("");
+      const { valid, invalid } = validateImported(records);
+      if (!valid.length) {
+        setError(`No valid candidates found in the file. ${formatInvalidSummary(invalid)}`);
+        setParsed(null);
+        return;
+      }
+      const created = await bulkCreateCandidates(valid);
+      const count = Array.isArray(created) ? created.length : valid.length;
+      setDone(`${count} candidate${count === 1 ? "" : "s"} added successfully.`);
+      if (invalid.length) {
+        setWarn(formatInvalidSummary(invalid));
+      }
+      setParsed(valid);
       window.dispatchEvent(new CustomEvent("candidates-changed"));
       onImported?.();
     } catch (e) {
-      setError("Import failed: " + (e?.message || "unknown error"));
+      setError("Could not parse file: " + (e?.message || "invalid format"));
+      setParsed(null);
     } finally {
       setBusy(false);
     }
@@ -217,29 +256,6 @@ export default function ImportDataModal({ open, onClose, onImported }) {
       await saveCandidate(candidate);
       setDone(`${candidate.name} imported successfully.`);
       setForm(emptyForm());
-      window.dispatchEvent(new CustomEvent("candidates-changed"));
-      onImported?.();
-    } catch (e) {
-      setError("Import failed: " + (e?.message || "unknown error"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function importSeedCandidates() {
-    setBusy(true);
-    setError(null);
-    setDone(null);
-    try {
-      const payload = seedCandidates.map((candidate) => ({
-        ...candidate,
-        readinessScore: Math.round(
-          Math.min(100, Math.max(0, (candidate.missions.filter((m) => !m.skipped && m.passed).length / 31) * 60 + ((candidate.missions.filter((m) => !m.skipped && m.attempts <= 1).length / Math.max(1, candidate.missions.filter((m) => !m.skipped && m.passed).length)) || 0.5) * 40))
-        ),
-      }));
-      const created = await bulkCreateCandidates(payload);
-      const count = Array.isArray(created) ? created.length : payload.length;
-      setDone(`${count} seed candidates imported successfully.`);
       window.dispatchEvent(new CustomEvent("candidates-changed"));
       onImported?.();
     } catch (e) {
@@ -271,7 +287,7 @@ export default function ImportDataModal({ open, onClose, onImported }) {
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <div>
                 <h2 className="font-display text-lg font-bold text-foreground">Import Candidates</h2>
-                <p className="text-xs text-muted-foreground">Add profiles manually, upload a JSON/CSV file, or load the built-in 20-user seed set.</p>
+                <p className="text-xs text-muted-foreground">Add profiles manually or upload a JSON/CSV file containing any number of candidates.</p>
               </div>
               <button
                 onClick={onClose}
@@ -305,26 +321,14 @@ export default function ImportDataModal({ open, onClose, onImported }) {
 
             {/* Body */}
             <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
-              <div className="mb-4 rounded-xl border border-border bg-surface/70 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">Seed 20 candidates</div>
-                    <div className="text-xs text-muted-foreground">Load the built-in cohort dataset matching the app’s candidate schema.</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={importSeedCandidates}
-                    disabled={busy}
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    Import 20 users
-                  </button>
-                </div>
-              </div>
               {error && (
                 <div className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive ring-1 ring-destructive/20">
                   {error}
+                </div>
+              )}
+              {warn && (
+                <div className="mb-4 rounded-lg bg-warning/10 px-4 py-3 text-sm text-warning ring-1 ring-warning/20">
+                  {warn}
                 </div>
               )}
               {done && (
@@ -421,8 +425,11 @@ export default function ImportDataModal({ open, onClose, onImported }) {
               {tab === "upload" && (
                 <div className="space-y-4">
                   <div
-                    onClick={() => fileRef.current?.click()}
-                    className="grid cursor-pointer place-items-center rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors hover:border-primary/40 hover:bg-secondary/40"
+                    onClick={() => !busy && fileRef.current?.click()}
+                    className={cn(
+                      "grid cursor-pointer place-items-center rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors",
+                      busy ? "opacity-60" : "hover:border-primary/40 hover:bg-secondary/40"
+                    )}
                   >
                     <input
                       ref={fileRef}
@@ -436,21 +443,27 @@ export default function ImportDataModal({ open, onClose, onImported }) {
                       }}
                     />
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      {fileName?.toLowerCase().endsWith(".csv") ? <FileSpreadsheet className="h-6 w-6" /> : <FileJson className="h-6 w-6" />}
+                      {busy ? (
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      ) : fileName?.toLowerCase().endsWith(".csv") ? (
+                        <FileSpreadsheet className="h-6 w-6" />
+                      ) : (
+                        <FileJson className="h-6 w-6" />
+                      )}
                     </div>
                     <p className="mt-2 text-sm font-medium text-foreground">
-                      {fileName || "Click to choose a JSON or CSV file"}
+                      {busy ? "Parsing and adding candidates…" : fileName || "Click to choose a JSON or CSV file"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      JSON: nested {`{ candidates: [{ member, missions, signals }] }`} or flat array. CSV: candidateId, name, jobRole, yearsExperience, education, status.
+                      Any number of candidates. JSON: nested {`{ candidates: [{ member, missions, signals }] }`} or flat array. CSV: candidateId, name, jobRole, yearsExperience, education, status.
                     </p>
                   </div>
 
                   {parsed && (
                     <div className="rounded-xl border border-border bg-surface p-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">{parsed.length} candidate{parsed.length === 1 ? "" : "s"} ready to import</span>
-                        <span className="text-xs text-muted-foreground">All existing candidates will be preserved.</span>
+                        <span className="text-sm font-medium text-foreground">{parsed.length} candidate{parsed.length === 1 ? "" : "s"} added</span>
+                        <span className="text-xs text-muted-foreground">All existing candidates are preserved.</span>
                       </div>
                       <div className="mt-3 max-h-40 space-y-1.5 overflow-y-auto">
                         {parsed.map((c, i) => (
@@ -466,10 +479,6 @@ export default function ImportDataModal({ open, onClose, onImported }) {
                   <div className="flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary">
                       Cancel
-                    </button>
-                    <button type="button" onClick={importParsed} disabled={busy || !parsed} className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60">
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                      Import {parsed?.length || ""} candidate{parsed?.length === 1 ? "" : "s"}
                     </button>
                   </div>
                 </div>

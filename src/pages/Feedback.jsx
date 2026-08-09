@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft,
   CheckCircle2,
+  Cpu,
   Download,
   RotateCcw,
   Sparkles,
@@ -130,8 +131,25 @@ export default function Feedback() {
         </Link>
 
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mt-4">
-          <div className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success ring-1 ring-success/20">
-            <Sparkles className="h-3.5 w-3.5" /> Interview complete
+          <div className="flex flex-wrap items-center gap-2">
+            {session?.endedBy === "timeout" ? (
+              <div className="inline-flex items-center gap-2 rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning ring-1 ring-warning/20">
+                <TriangleAlert className="h-3.5 w-3.5" /> Time expired · Interview ended automatically
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success ring-1 ring-success/20">
+                <Sparkles className="h-3.5 w-3.5" /> Interview complete
+              </div>
+            )}
+            {f?.scoringMethod === "ai" || (session?.evaluations || []).some((e) => e.scoringMethod === "ai") ? (
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary ring-1 ring-primary/20">
+                <Sparkles className="h-3.5 w-3.5" /> AI-Graded Evaluation
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                <Cpu className="h-3.5 w-3.5" /> Heuristic Evaluation
+              </div>
+            )}
           </div>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-foreground">{candidateName}</h1>
         </motion.div>

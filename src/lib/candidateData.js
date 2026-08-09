@@ -65,5 +65,7 @@ export function normalizeCandidateData(raw) {
 
 export function normalizeCandidateList(rawList) {
   if (!Array.isArray(rawList)) return [];
-  return rawList.map(normalizeCandidateData).filter((candidate) => candidate.candidateId && candidate.name);
+  return rawList
+    .map(normalizeCandidateData)
+    .filter((candidate) => candidate.candidateId && candidate.name);
 }

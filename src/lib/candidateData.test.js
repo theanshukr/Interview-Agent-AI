@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeCandidateData } from './candidateData.js';
+import { normalizeCandidateData, normalizeCandidateList } from './candidateData.js';
 
 test('normalizes imported candidate data into the shape used by the UI', () => {
   const result = normalizeCandidateData({
@@ -27,4 +27,11 @@ test('normalizes imported candidate data into the shape used by the UI', () => {
   assert.deepEqual(result.strengths, ['Setup']);
   assert.equal(result.missions.length, 2);
   assert.equal(result.signals.commitDays, 12);
+});
+
+test('normalizes candidate list keeping valid candidates', () => {
+  const list = normalizeCandidateList([
+    { member: { candidateId: 'CAND-901', name: 'Real Candidate', jobRole: 'ML Engineer' } },
+  ]);
+  assert.deepEqual(list.map((c) => c.candidateId), ['CAND-901']);
 });

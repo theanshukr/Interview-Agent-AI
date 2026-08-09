@@ -111,18 +111,24 @@ export const apiClient = {
     }
   },
 
+  resetSessions() {
+    localStore.removeItem(STORAGE_KEYS.sessions);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sessions-changed"));
+    }
+  },
+
   // Candidates
   getCandidates() {
-    const list = localStore.getItem(STORAGE_KEYS.candidates, null);
+    let list = localStore.getItem(STORAGE_KEYS.candidates, null);
     if (!list || !Array.isArray(list) || list.length === 0) {
-      localStore.setItem(STORAGE_KEYS.candidates, seedCandidates);
-      return seedCandidates;
+      list = seedCandidates;
     }
     return list;
   },
 
   saveCandidates(candidates) {
-    localStore.setItem(STORAGE_KEYS.candidates, candidates);
+    localStore.setItem(STORAGE_KEYS.candidates, candidates || []);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("candidates-changed"));
     }

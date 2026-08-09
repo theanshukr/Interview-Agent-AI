@@ -5,6 +5,41 @@
 import { apiClient } from "@/lib/apiClient";
 import { normalizeCandidateData, normalizeCandidateList } from "@/lib/candidateData";
 import { seedCandidates } from "@/lib/seedCandidates";
+import { addNotification, NOTIFICATION_TYPES } from "@/lib/notifications";
+
+function candidateLabel(session) {
+  const c = session?.candidate || {};
+  return c.name || "Candidate";
+}
+
+// Real application events are recorded here (deduped by type + sessionId inside
+// the notifications store), so the bell and toasts reflect the actual session.
+function notifySession(session, type, title, message) {
+  const c = session?.candidate || {};
+  addNotification({
+    type,
+    sessionId: session?.sessionId,
+    candidateId: c.candidateId,
+    candidateName: c.name,
+    title,
+    message,
+  });
+}
+
+// A single 60-minute countdown timer belongs to the ENTIRE interview, not individual questions.
+export const INTERVIEW_DURATION_MS = 60 * 60 * 1000;
+
+// Timestamp-based remaining time. Prevents drift from React re-renders, tab switches,
+// or delayed intervals, and survives page refreshes via persisted end timestamps.
+export function getInterviewRemainingMs(session) {
+  const s = session || {};
+  if (s.status === "completed" || s.status === "expired") return 0;
+  if (s.status === "paused") return Math.max(0, Number(s.pausedRemainingMs) || 0);
+  if (s.interviewEndTime) {
+    return Math.max(0, new Date(s.interviewEndTime).getTime() - Date.now());
+  }
+  return INTERVIEW_DURATION_MS;
+}
 
 function ensureSeedData() {
   const stored = apiClient.getCandidates();
@@ -36,9 +71,136 @@ export async function getCandidate(candidateId) {
   return candidates.find((c) => c.candidateId === candidateId) || null;
 }
 
-export async function getSession(sessionId) {
+export function getSessionSync(sessionId) {
   const sessions = apiClient.getSessions();
   return sessions.find((s) => s.sessionId === sessionId) || null;
+}
+
+// Most recent session for a given candidate (any status), or null.
+export function getCandidateSession(candidateId) {
+  if (!candidateId) return null;
+  const sessions = apiClient.getSessions().filter(
+    (s) => String(s.candidate?.candidateId || s.candidateId || "") === String(candidateId)
+  );
+  return mostRecentFirst(sessions)[0] || null;
+}
+
+export async function getSession(sessionId) {
+  return getSessionSync(sessionId);
+}
+
+function mostRecentFirst(sessions) {
+  return [...(sessions || [])].sort((a, b) =>
+    String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+  );
+}
+
+function touchSession(session, updates) {
+  return { ...session, ...updates, updatedAt: new Date().toISOString() };
+}
+
+// Single live interview session (active or paused). Only one can exist at a time.
+export function getActiveSession() {
+  const live = apiClient
+    .getSessions()
+    .filter((s) => s.status === "active" || s.status === "paused");
+  return mostRecentFirst(live)[0] || null;
+}
+
+// Most recent session of any kind, preferring the live one for display.
+export function getMostRecentSession() {
+  const sessions = apiClient.getSessions();
+  const live = sessions.filter((s) => s.status === "active" || s.status === "paused");
+  const completed = sessions.filter((s) => s.status === "completed");
+  return mostRecentFirst(live)[0] || mostRecentFirst(completed)[0] || null;
+}
+
+// Pausing is intentionally removed: the 60-minute timer is ONE global clock that
+// keeps running whenever a session is active, even if the user leaves the page.
+// resumeSession only converts legacy paused sessions back to active; for a
+// session that is already active it is a no-op and NEVER resets the clock.
+export function resumeSession(sessionId) {
+  const sessions = apiClient.getSessions();
+  let changed = false;
+  const updated = sessions.map((s) => {
+    if (s.sessionId !== sessionId) return s;
+    if (s.status === "active") return s;
+    changed = true;
+    const now = Date.now();
+    const remaining =
+      Math.max(0, Number(s.pausedRemainingMs)) ||
+      getInterviewRemainingMs(s) ||
+      INTERVIEW_DURATION_MS;
+    return touchSession(s, {
+      status: "active",
+      interviewStartedAt: s.interviewStartedAt || new Date(now).toISOString(),
+      interviewEndTime: new Date(now + remaining).toISOString(),
+      pausedRemainingMs: null,
+      pausedAt: null,
+    });
+  });
+  if (changed) apiClient.saveSessions(updated);
+  const session = updated.find((s) => s.sessionId === sessionId) || null;
+  if (session && changed) {
+    notifySession(session, NOTIFICATION_TYPES.RESUMED, "Interview resumed", `${candidateLabel(session)}'s interview was resumed.`);
+  }
+  return session;
+}
+
+// Auto-end the interview when the 60-minute timer reaches 00:00.
+// Marks the session completed, flags it as a timeout, and generates feedback
+// from whatever questions were answered before time ran out.
+export function expireSession(sessionId) {
+  const sessions = apiClient.getSessions();
+  const updated = sessions.map((s) => {
+    if (s.sessionId !== sessionId) return s;
+    if (s.status === "completed") return s;
+    const answered = (s.evaluations || []).length;
+    const feedback = generateFeedbackSummary(s.candidate, s.evaluations || [], s.difficulty || 5, {
+      answeredCount: answered,
+      timedOut: true,
+    });
+    return touchSession(s, {
+      status: "completed",
+      endedBy: "timeout",
+      interviewEndTime: new Date().toISOString(),
+      pausedRemainingMs: null,
+      pausedAt: null,
+      feedback,
+    });
+  });
+  apiClient.saveSessions(updated);
+  const session = updated.find((s) => s.sessionId === sessionId) || null;
+  if (session) {
+    notifySession(session, NOTIFICATION_TYPES.EXPIRED, "Interview time expired", `${candidateLabel(session)}'s interview ended when the 60-minute limit was reached.`);
+    notifySession(session, NOTIFICATION_TYPES.RESULT, "Interview result generated", `Feedback is ready for ${candidateLabel(session)}.`);
+  }
+  return session;
+}
+
+// End a single session by removing it (used by "End Interview").
+export function endSession(sessionId) {
+  const sessions = apiClient.getSessions();
+  const target = sessions.find((s) => s.sessionId === sessionId);
+  apiClient.saveSessions(sessions.filter((s) => s.sessionId !== sessionId));
+  if (target) {
+    notifySession(target, NOTIFICATION_TYPES.ENDED, "Interview ended", `${candidateLabel(target)}'s interview session was ended.`);
+  }
+}
+
+// End/reset the live interview session so exactly one active interview can exist.
+export function endActiveSession() {
+  const sessions = apiClient.getSessions();
+  const removed = sessions.filter(
+    (s) => s.status === "active" || s.status === "paused"
+  );
+  const remaining = sessions.filter(
+    (s) => s.status !== "active" && s.status !== "paused"
+  );
+  apiClient.saveSessions(remaining);
+  removed.forEach((session) => {
+    notifySession(session, NOTIFICATION_TYPES.ENDED, "Interview ended", `${candidateLabel(session)}'s interview session was ended.`);
+  });
 }
 
 export async function saveCandidate(candidate) {
@@ -280,7 +442,7 @@ function evaluateAnswerAndAdapt(candidateAnswer, currentDifficulty) {
   };
 }
 
-function generateFeedbackSummary(candidate, evaluations, finalDifficulty) {
+function generateFeedbackSummary(candidate, evaluations, finalDifficulty, opts = {}) {
   const name = candidate?.name || "The candidate";
   const skippedCount = (evaluations || []).filter((e) => e.skipped).length;
   const overallScore = Math.max(40, Math.round(75 + finalDifficulty * 2 - skippedCount * 6));
@@ -294,8 +456,12 @@ function generateFeedbackSummary(candidate, evaluations, finalDifficulty) {
     gaps.unshift(`Uncovered foundational knowledge across ${skippedCount} skipped topics`);
   }
 
+  const completion = opts.timedOut
+    ? `completed ${Math.max(0, opts.answeredCount || 0)} of 8 questions before the 60-minute time limit expired`
+    : "completed an 8-question adaptive technical interview";
+
   return {
-    summary: `${name} completed an 8-question adaptive technical interview covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${skippedCount > 0 ? "some areas needing review" : "strong technical execution"} and practical awareness.`,
+    summary: `${name} ${completion} covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${skippedCount > 0 ? "some areas needing review" : "strong technical execution"} and practical awareness.`,
     strengths: candidate?.strengths && candidate.strengths.length > 0 ? candidate.strengths : [
       "Structured problem solving & clear architectural explanations",
       "Solid understanding of vector retrieval and RAG concepts",
@@ -320,7 +486,101 @@ function generateFeedbackSummary(candidate, evaluations, finalDifficulty) {
   };
 }
 
+function syncClientSession(data, payload) {
+  try {
+    const sessionId = data.sessionId || payload.sessionId;
+    const existingSessions = apiClient.getSessions();
+    let session = existingSessions.find((s) => s.sessionId === sessionId);
+
+    if (!session) {
+      session = {
+        sessionId,
+        candidate: data.candidate || payload.candidate,
+        status: data.status || "active",
+        messages: [],
+        currentDay: data.currentDay || 1,
+        currentTopic: data.currentTopic || "",
+        difficulty: data.difficulty || 5,
+        coveredDays: data.coveredDays || [],
+        targetQuestions: data.targetQuestions || 8,
+        questionNumber: data.questionNumber || 1,
+        evaluations: [],
+        feedback: data.feedback || null,
+        interviewStartedAt: data.interviewStartedAt || new Date().toISOString(),
+        interviewEndTime: data.interviewEndTime || new Date(Date.now() + INTERVIEW_DURATION_MS).toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (payload.candidate) {
+      session.candidate = normalizeCandidateData(payload.candidate);
+    }
+
+    if (payload.message) {
+      const alreadyHasUserMsg = session.messages.some(
+        (m) => m.role === "candidate" && m.content === payload.message
+      );
+      if (!alreadyHasUserMsg) {
+        session.messages.push({ role: "candidate", content: payload.message });
+      }
+    }
+
+    if (data.reply) {
+      const lastMsg = session.messages[session.messages.length - 1];
+      if (!lastMsg || lastMsg.role !== "interviewer" || lastMsg.content !== data.reply) {
+        session.messages.push({ role: "interviewer", content: data.reply });
+      }
+    }
+
+    if (data.questionNumber) session.questionNumber = data.questionNumber;
+    if (data.currentDay) session.currentDay = data.currentDay;
+    if (data.currentTopic) session.currentTopic = data.currentTopic;
+    if (data.difficulty) session.difficulty = data.difficulty;
+    if (data.coveredDays) session.coveredDays = data.coveredDays;
+    if (data.feedback) session.feedback = data.feedback;
+    if (data.done || data.status === "completed") session.status = "completed";
+    session.updatedAt = new Date().toISOString();
+
+    const updatedSessions = [...existingSessions.filter((s) => s.sessionId !== sessionId), session];
+    apiClient.saveSessions(updatedSessions);
+  } catch (err) {
+    console.warn("Error syncing client session state:", err);
+  }
+}
+
 export async function interview(payload) {
+  const forceMock = import.meta.env.VITE_ENABLE_MOCK_ENGINE === "true";
+
+  if (!forceMock) {
+    try {
+      const settings = apiClient.getSettings();
+      const headers = { "Content-Type": "application/json" };
+      if (settings?.geminiApiKey) {
+        headers["x-gemini-api-key"] = settings.geminiApiKey;
+      }
+
+      const response = await fetch("/api/interview", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        syncClientSession(data, payload);
+        return data;
+      }
+      console.warn(`Backend /api/interview returned status ${response.status}. Falling back to mock engine.`);
+    } catch (err) {
+      console.warn("Backend /api/interview network error, falling back to mock engine:", err);
+    }
+  }
+
+  return runClientMockInterview(payload);
+}
+
+async function runClientMockInterview(payload) {
   const sessionId = payload?.sessionId || crypto.randomUUID();
   const candidate = payload?.candidate ? normalizeCandidateData(payload.candidate) : null;
   const existingSessions = apiClient.getSessions();
@@ -341,6 +601,7 @@ export async function interview(payload) {
       initialReply = `Hi ${candidate?.name || "there"} — I'm Atlas, your AI Technical Interviewer. I'll assess your readiness for the ${candidate?.jobRole || "AI Engineering"} role through an 8-question interview based on your cohort learning journey.\n\nLet's start with **Question 1 of 8** (Day ${initialQuestion.day}: ${initialQuestion.topic}):\n\n${initialQuestion.question}`;
     }
 
+    const now = Date.now();
     const newSession = {
       sessionId,
       candidate,
@@ -354,23 +615,49 @@ export async function interview(payload) {
       questionNumber: 1,
       evaluations: [],
       feedback: null,
+      interviewStartedAt: new Date(now).toISOString(),
+      interviewEndTime: new Date(now + INTERVIEW_DURATION_MS).toISOString(),
+      pausedRemainingMs: null,
+      pausedAt: null,
+      endedBy: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    apiClient.saveSessions([...existingSessions.filter((s) => s.sessionId !== sessionId), newSession]);
+    const replaced = existingSessions.filter(
+      (s) => s.sessionId !== sessionId && (s.status === "active" || s.status === "paused")
+    );
+    replaced.forEach((s) => {
+      notifySession(s, NOTIFICATION_TYPES.ENDED, "Interview ended", `${candidateLabel(s)}'s interview session was ended.`);
+    });
+    apiClient.saveSessions([
+      ...existingSessions.filter(
+        (s) => s.sessionId !== sessionId && s.status !== "active" && s.status !== "paused"
+      ),
+      newSession,
+    ]);
+    notifySession(
+      newSession,
+      NOTIFICATION_TYPES.STARTED,
+      "Interview started",
+      `${candidateLabel(newSession)}'s interview is now live.`
+    );
 
     return {
       reply: initialReply,
       done: false,
       sessionId,
       candidate,
+      status: "active",
       questionNumber: 1,
       currentDay: initialQuestion.day,
       currentTopic: initialQuestion.topic,
       difficulty: 5,
       coveredDays: [initialQuestion.day],
       targetQuestions: 8,
+      interviewStartedAt: newSession.interviewStartedAt,
+      interviewEndTime: newSession.interviewEndTime,
+      pausedRemainingMs: null,
     };
   }
 
@@ -388,6 +675,11 @@ export async function interview(payload) {
     questionNumber: 1,
     evaluations: [],
     feedback: null,
+    interviewStartedAt: new Date().toISOString(),
+    interviewEndTime: new Date(Date.now() + INTERVIEW_DURATION_MS).toISOString(),
+    pausedRemainingMs: null,
+    pausedAt: null,
+    endedBy: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -401,7 +693,6 @@ export async function interview(payload) {
 
   const category = llmAnalysis?.category || (isCommentOrGibberish(payload.message) ? "GIBBERISH" : isNonAnswer(payload.message) ? "SKIP" : "VALID_ANSWER");
 
-  // If input is GIBBERISH / META-COMMENT: Prompt candidate to stay focused without advancing question number
   if (category === "GIBBERISH") {
     const currentQNum = session.questionNumber || 1;
     const reply = llmAnalysis?.acknowledgment || `I'm Atlas, your technical interviewer! Take a moment to share your technical response for Question ${currentQNum}.`;
@@ -417,6 +708,7 @@ export async function interview(payload) {
       done: false,
       sessionId,
       candidate,
+      status: session.status,
       questionNumber: currentQNum,
       currentDay: session.currentDay,
       currentTopic: session.currentTopic,
@@ -424,13 +716,13 @@ export async function interview(payload) {
       coveredDays: session.coveredDays,
       targetQuestions: session.targetQuestions,
       feedback: session.feedback,
+      interviewEndTime: session.interviewEndTime,
+      pausedRemainingMs: session.pausedRemainingMs,
     };
   }
 
-  // Record candidate response
   session.messages.push({ role: "candidate", content: payload.message });
 
-  // Evaluate response & adapt difficulty
   const evalResult = evaluateAnswerAndAdapt(payload.message, session.difficulty || 5);
   session.evaluations = [...(session.evaluations || []), evalResult];
   session.difficulty = evalResult.newDifficulty;
@@ -444,6 +736,8 @@ export async function interview(payload) {
     session.status = "completed";
     session.feedback = generateFeedbackSummary(candidate, session.evaluations, session.difficulty);
     reply = `Thank you, ${candidate?.name || "candidate"}. That completes all 8 technical questions of your interview! I have compiled your structured feedback, strengths, gaps, and recommended next steps.`;
+    notifySession(session, NOTIFICATION_TYPES.COMPLETED, "Interview completed", `${candidateLabel(session)} completed the interview.`);
+    notifySession(session, NOTIFICATION_TYPES.RESULT, "Interview result generated", `Feedback is ready for ${candidateLabel(session)}.`);
   } else {
     const nextQNum = currentQNum + 1;
     session.questionNumber = nextQNum;
@@ -494,6 +788,7 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     done: isDone,
     sessionId,
     candidate,
+    status: session.status,
     questionNumber: session.questionNumber,
     currentDay: session.currentDay,
     currentTopic: session.currentTopic,
@@ -501,5 +796,7 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     coveredDays: session.coveredDays,
     targetQuestions: session.targetQuestions,
     feedback: session.feedback,
+    interviewEndTime: session.interviewEndTime,
+    pausedRemainingMs: session.pausedRemainingMs,
   };
-}
+}

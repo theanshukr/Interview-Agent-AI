@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
-import { ArrowLeft, SendHorizonal, Square, Code, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, SendHorizonal, Square, Code, Sparkles, Cpu } from "lucide-react";
 import TopNav from "@/components/TopNav";
 import Avatar from "@/components/Avatar";
 import TypingIndicator from "@/components/TypingIndicator";
 import CodeSandbox from "@/components/CodeSandbox";
-import { interview, getSession } from "@/lib/interviewApi";
+import InterviewTimer from "@/components/InterviewTimer";
+import { interview, getSession, getSessionSync, resumeSession, expireSession } from "@/lib/interviewApi";
+import { useInterviewTimer } from "@/hooks/useInterviewTimer";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -16,6 +18,13 @@ function difficultyLabel(level) {
   if (l <= 6) return "Medium";
   if (l <= 8) return "Advanced";
   return "Expert";
+}
+
+function formatClock(ms) {
+  const total = Math.max(0, Math.ceil((ms || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 
@@ -56,34 +65,68 @@ export default function Interview() {
   const [currentTopic, setCurrentTopic] = useState(initial.currentTopic || "");
   const [difficulty, setDifficulty] = useState(initial.difficulty || 5);
   const [coveredDays, setCoveredDays] = useState(initial.coveredDays || (initial.currentDay ? [initial.currentDay] : []));
-  const [targetQuestions] = useState(initial.targetQuestions || 10);
+  const [targetQuestions, setTargetQuestions] = useState(initial.targetQuestions || 8);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!initial.reply);
   const [error, setError] = useState(null);
   const [streamingText, setStreamingText] = useState("");
   const [showSandbox, setShowSandbox] = useState(false);
+  const [scoringMethod, setScoringMethod] = useState(initial.scoringMethod || "heuristic");
+
+  // Interview-wide 60-minute countdown state (persisted via timestamps on the session).
+  // Lazily restore timestamps from the stored session so a page refresh never restarts the clock.
+  const [status, setStatus] = useState(() => {
+    if (initial.status) return initial.status;
+    return getSessionSync(sessionId)?.status || "active";
+  });
+  const [interviewEndTime, setInterviewEndTime] = useState(() => {
+    if (initial.interviewEndTime) return initial.interviewEndTime;
+    return getSessionSync(sessionId)?.interviewEndTime || null;
+  });
+  const [pausedRemainingMs, setPausedRemainingMs] = useState(() => {
+    if (initial.pausedRemainingMs) return initial.pausedRemainingMs;
+    return getSessionSync(sessionId)?.pausedRemainingMs || null;
+  });
+  const [expired, setExpired] = useState(false);
+  const expireHandledRef = useRef(false);
 
   const scrollRef = useRef(null);
   const streamTimer = useRef(null);
 
+  function applySession(s) {
+    if (!s) return;
+    setStatus(s.status || "active");
+    setInterviewEndTime(s.interviewEndTime || null);
+    setPausedRemainingMs(s.pausedRemainingMs || null);
+    setMessages(s.messages || []);
+    setCandidate(s.candidate || null);
+    setQuestionNumber(s.questionCount || s.questionNumber || 0);
+    setCurrentDay(s.currentDay);
+    setCurrentTopic(s.currentTopic || "");
+    setDifficulty(s.difficulty || 5);
+    setCoveredDays(s.coveredDays || []);
+    setTargetQuestions(s.targetQuestions || 8);
+    const hasAiEval = (s.evaluations || []).some((e) => e.scoringMethod === "ai") || s.scoringMethod === "ai";
+    setScoringMethod(hasAiEval ? "ai" : "heuristic");
+  }
+
   useEffect(() => {
-    if (initial.reply) return;
     let cancelled = false;
     (async () => {
       try {
         const s = await getSession(sessionId);
         if (cancelled || !s) return;
-        setMessages(s.messages || []);
-        setCandidate(s.candidate || null);
-        setQuestionNumber(s.questionCount || 0);
-        setCurrentDay(s.currentDay);
-        setCurrentTopic(s.currentTopic || "");
-        setDifficulty(s.difficulty || 5);
-        setCoveredDays(s.coveredDays || []);
-        if (s.status === "completed") navigate(`/feedback/${sessionId}`, { replace: true });
+        if (s.status === "paused") resumeSession(sessionId);
+        const live = await getSession(sessionId);
+        if (cancelled || !live) return;
+        applySession(live);
+        if (live.status === "completed") {
+          navigate(`/feedback/${sessionId}`, { replace: true });
+          return;
+        }
       } catch (e) {
-        setError(e?.message || "Failed to load session");
+        if (!cancelled) setError(e?.message || "Failed to load session");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -91,8 +134,53 @@ export default function Interview() {
     return () => {
       cancelled = true;
     };
-     
   }, [sessionId]);
+
+  // Keep the page in sync with the stored session (e.g. other tabs ending it,
+  // or the global expiry watcher finishing the session at 00:00).
+  useEffect(() => {
+    const sync = () => {
+      getSession(sessionId).then((s) => {
+        if (s && s.status !== "completed") applySession(s);
+      });
+    };
+    window.addEventListener("sessions-changed", sync);
+    return () => window.removeEventListener("sessions-changed", sync);
+  }, [sessionId]);
+
+  function handleTimeExpired() {
+    if (expireHandledRef.current) return;
+    expireHandledRef.current = true;
+    setExpired(true);
+    setBusy(true);
+    expireSession(sessionId);
+    toast({
+      title: "Interview Time Expired",
+      description: "The 60-minute limit has been reached. Submitting your interview automatically.",
+      variant: "destructive",
+    });
+    setTimeout(() => {
+      navigate(`/feedback/${sessionId}`, { replace: true });
+    }, 1600);
+  }
+
+  const { remaining, expired: timerExpired } = useInterviewTimer({
+    status,
+    interviewEndTime,
+    pausedRemainingMs,
+    disabled: loading,
+    onExpire: handleTimeExpired,
+  });
+
+  useEffect(() => {
+    if (timerExpired) setExpired(true);
+  }, [timerExpired]);
+
+  useEffect(() => {
+    return () => {
+      if (streamTimer.current) clearInterval(streamTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -121,7 +209,7 @@ export default function Interview() {
   async function handleSend(e) {
     e?.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || expired) return;
     setInput("");
     setBusy(true);
     setError(null);
@@ -179,8 +267,14 @@ export default function Interview() {
                 <div>
                   <div className="text-xs text-muted-foreground">Question</div>
                   <div className="font-display text-2xl font-bold tabular-nums text-foreground">
-                    {questionNumber + 1}
+                    {Math.max(1, questionNumber)}
                     <span className="text-base font-medium text-muted-foreground"> / {targetQuestions}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="font-mono tabular-nums text-foreground/80">
+                      {expired || timerExpired ? "00:00" : formatClock(remaining)}
+                    </span>
+                    <span>{expired || timerExpired ? "· time expired" : status === "paused" ? "· paused" : "remaining"}</span>
                   </div>
                 </div>
 
@@ -202,6 +296,21 @@ export default function Interview() {
                 <div>
                   <div className="text-xs text-muted-foreground">Coverage</div>
                   <div className="mt-0.5 text-sm font-medium text-foreground">{uniqueDays} curriculum days</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-muted-foreground">Evaluation Mode</div>
+                  <div className="mt-1">
+                    {scoringMethod === "ai" ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary ring-1 ring-primary/20">
+                        <Sparkles className="h-3 w-3" /> AI-Graded
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                        <Cpu className="h-3 w-3" /> Heuristic
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="h-px bg-border" />
@@ -233,15 +342,22 @@ export default function Interview() {
 
           {/* RIGHT — conversation */}
           <section className="order-1 flex min-h-[60vh] flex-col lg:order-2 lg:min-h-0 lg:overflow-hidden">
-            <div className="card flex items-center justify-between rounded-t-2xl px-4 py-3">
+            <div className="card flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-foreground text-[10px] font-bold text-background">IA</span>
                 <div>
                   <div className="text-sm font-semibold text-foreground">AI Cohort Interviewer</div>
-                  <div className="text-[11px] text-success">● Live · adaptive</div>
+                  <div className="text-[11px] text-success">● {status === "paused" ? "Paused" : expired ? "Time expired" : "Live · adaptive"}</div>
                 </div>
               </div>
-              <span className="hidden text-xs text-muted-foreground sm:block">Session {String(sessionId || "").slice(0, 12)}…</span>
+              <InterviewTimer
+                remaining={remaining}
+                questionNumber={Math.max(1, questionNumber)}
+                target={targetQuestions}
+                status={status}
+                expired={expired || timerExpired}
+              />
+              <span className="hidden text-xs text-muted-foreground md:block">Session {String(sessionId || "").slice(0, 12)}…</span>
             </div>
 
             {showSandbox && (
@@ -288,11 +404,11 @@ export default function Interview() {
                   placeholder="Type your answer…"
                   className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] outline-none placeholder:text-muted-foreground/60"
                   style={{ minHeight: 44 }}
-                  disabled={busy}
+                  disabled={busy || expired}
                 />
                 <button
                   type="submit"
-                  disabled={busy || !input.trim()}
+                  disabled={busy || expired || !input.trim()}
                   className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
                 >
                   {busy ? (
@@ -302,8 +418,13 @@ export default function Interview() {
                   )}
                 </button>
               </form>
+              {expired && (
+                <div className="mt-1 px-2 text-[11px] font-medium text-destructive">
+                  Time expired — the interview was submitted automatically.
+                </div>
+              )}
               <div className="mt-1 flex justify-between px-2 text-[11px] text-muted-foreground">
-                <span>Enter to send · Shift+Enter for newline</span>
+                <span>{expired ? "Interview complete" : "Enter to send · Shift+Enter for newline"}</span>
                 <button onClick={() => navigate(`/feedback/${sessionId}`)} className="flex items-center gap-1 transition-colors hover:text-foreground">
                   <Square className="h-3 w-3" /> End & view feedback
                 </button>
@@ -312,6 +433,28 @@ export default function Interview() {
           </section>
         </div>
       </div>
+
+      {expired && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="card w-full max-w-sm rounded-2xl p-8 text-center">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-destructive/10 text-destructive ring-1 ring-destructive/20">
+              <AlertTriangle className="h-5 w-5" />
+            </span>
+            <h2 className="mt-4 font-display text-xl font-bold tracking-tight text-foreground">
+              Interview Time Expired
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              The 60-minute interview limit has been reached. Your interview was submitted automatically and feedback is being prepared.
+            </p>
+            <button
+              onClick={() => navigate(`/feedback/${sessionId}`)}
+              className="mt-6 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              View feedback
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

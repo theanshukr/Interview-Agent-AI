@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Search, Upload } from "lucide-react";
+import { Search, Plus } from "lucide-react";
 import TopNav from "@/components/TopNav";
 import CandidateCard from "@/components/CandidateCard";
-import { listCandidates, interview } from "@/lib/interviewApi";
+import InterviewSwitchDialog from "@/components/InterviewSwitchDialog";
+import { listCandidates } from "@/lib/interviewApi";
 import { useToast } from "@/components/ui/use-toast";
+import { useInterviewStarter } from "@/hooks/useInterviewStarter";
 
 export default function SelectCandidate() {
   const navigate = useNavigate();
@@ -13,7 +15,7 @@ export default function SelectCandidate() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState(searchParams.get("q") || "");
-  const [starting, setStarting] = useState(null);
+  const { startingId, switchInfo, startInterview, confirmSwitch, continueActive, cancelSwitch } = useInterviewStarter();
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -64,32 +66,8 @@ export default function SelectCandidate() {
     });
   }, [candidates, query]);
 
-  async function handleStart(candidate) {
-    setStarting(candidate.candidateId);
-    try {
-      const sessionId = crypto.randomUUID();
-      const res = await interview({ sessionId, candidate });
-      navigate(`/interview/${sessionId}`, {
-        state: {
-          reply: res.reply,
-          candidate,
-          questionNumber: res.questionNumber,
-          currentDay: res.currentDay,
-          currentTopic: res.currentTopic,
-          difficulty: res.difficulty,
-          coveredDays: res.coveredDays,
-          targetQuestions: res.targetQuestions,
-        },
-      });
-    } catch (e) {
-      toast({
-        title: e?.creditsExhausted ? "Integration credits exhausted" : "Could not start interview",
-        description: e?.creditsExhausted ? "The workspace is out of AI integration credits. Upgrade your plan or wait for credits to reset to run interviews." : e?.message || "unknown error",
-        variant: "destructive",
-      });
-    } finally {
-      setStarting(null);
-    }
+  function handleStart(candidate) {
+    startInterview(candidate);
   }
 
   return (
@@ -120,8 +98,8 @@ export default function SelectCandidate() {
                 onClick={() => window.dispatchEvent(new CustomEvent("open-import-modal"))}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
               >
-                <Upload className="h-3.5 w-3.5" />
-                <span>Import Candidates</span>
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Candidates</span>
               </button>
             </div>
           </div>
@@ -139,7 +117,7 @@ export default function SelectCandidate() {
               <CandidateCard
                 key={c.candidateId}
                 candidate={c}
-                starting={starting}
+                starting={startingId}
                 onStart={() => handleStart(c)}
                 onView={() => navigate(`/candidate/${c.candidateId}`)}
               />
@@ -160,6 +138,14 @@ export default function SelectCandidate() {
           </div>
         )}
       </main>
+
+      <InterviewSwitchDialog
+        activeSession={switchInfo?.activeSession}
+        targetCandidate={switchInfo?.targetCandidate}
+        onConfirm={confirmSwitch}
+        onContinue={continueActive}
+        onCancel={cancelSwitch}
+      />
     </div>
   );
 }

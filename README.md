@@ -1,135 +1,156 @@
 # Enterprise AI Interview Agent 🚀
 
 > **Curriculum-Aware Technical Interview & Candidate Evaluation Platform**
-> Built with React 18, Vite, Tailwind CSS, Recharts, and Lucide Icons.
+> Built with React 18, Vite, Node/Express, Tailwind CSS, Recharts, and Lucide Icons.
 
 [![Live Demo](https://img.shields.io/badge/LIVE_DEMO-Click_Here_to_Launch-brightgreen?style=for-the-badge&logo=github)](https://theanshukr.github.io/Interview-Agent-AI/)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-blue?style=for-the-badge&logo=github)](https://github.com/theanshukr/Interview-Agent-AI)
 
 ---
 
-## 🔗 Live Demo
-
-👉 **Experience the Live Interactive App**: [https://theanshukr.github.io/Interview-Agent-AI/](https://theanshukr.github.io/Interview-Agent-AI/)
-
----
-
 ## 🌟 Overview
 
-**Enterprise AI Interview Agent** is an end-to-end, curriculum-aware AI platform designed to conduct dynamic, adaptive technical interviews for software and AI engineering roles. It automatically scales question difficulty, tracks curriculum mastery, provides interactive code scratchpads, and synthesizes 7-competency evaluation reports with single-click PDF exporting.
+**Enterprise AI Interview Agent** is an end-to-end, curriculum-aware AI platform designed to conduct dynamic, adaptive technical interviews for software and AI engineering roles. Grounded in an 8-topic AI Engineering curriculum (from setup to vector search & RAG pipelines), it maintains session state via a server-side engine, enforces a server-recorded 60-minute interview limit, grades candidate responses on a 1–10 scale using strict JSON schema LLM evaluation, and synthesizes 7-competency evaluation reports with single-click PDF export.
 
 ---
 
 ## ✨ Core Features
 
-- 🧠 **Adaptive AI Interviewer**: Grounded in an 8-topic AI Engineering curriculum (from setup to vector search & RAG pipelines) with dynamic intent detection (`VALID_ANSWER`, `SKIP`, `GIBBERISH`).
-- 📈 **Real-Time Difficulty Scaling**: Evaluates response depth on a 1–10 scale and dynamically shifts follow-up questions based on candidate performance.
-- 💻 **Interactive Code Scratchpad**: Integrated live coding & SQL sandbox with real-time evaluation.
+- 🧠 **Curriculum-Grounded AI Interviewer**: Grounded directly in `hackethon document/curriculum.json` with dynamic intent detection (`VALID_ANSWER`, `SKIP`, `GIBBERISH`).
+- ⚡ **Node/Express Backend API**: Single endpoint (`POST /api/interview`) satisfying hackathon API contract specs literally for starting and continuing interviews.
+- 🎯 **Deterministic Real LLM Scoring**: Grades candidate answers using Gemini structured JSON schema outputs for `technicalCorrectness`, `depth`, `reasoning`, and `communication` (1–10 scale), with graceful word-count heuristic fallback.
+- 🔒 **Server-Enforced 60-Minute Session Timer & Integrity**: Expiration timer enforced server-side; candidate ID validation prevents session spoofing.
+- 💻 **Interactive Code Sandbox**: Integrated live coding & SQL sandbox with instant evaluation.
 - 📊 **7-Competency Radar Evaluation**: Provides visual breakdown across Knowledge, Accuracy, Communication, Confidence, Depth, Reasoning, and Practical application.
-- 📄 **Executive PDF Export**: High-fidelity single-click post-interview report generation using `jspdf` and `html2canvas`.
-- 👥 **Candidate Onboarding & Management**: Candidate pipeline dashboard with bulk JSON/CSV import capabilities.
-- ⚡ **Zero Remote Dependencies Option**: Operates 100% client-side with mock engine, or connects seamlessly to local Ollama / OpenAI endpoints.
+- 📄 **Executive Report & PDF Export**: High-fidelity post-interview report generation with plain text and PDF downloads.
+- 👥 **Candidate Onboarding & Roster**: Candidate pipeline dashboard with bulk JSON/CSV import capabilities.
 
 ---
 
-## 🌐 Live Demo & Deployment Guide
+## 🌐 Quick Start (Local Setup)
 
-### Option 1: GitHub Pages Deployment (Automated via GitHub Actions)
-This project includes a ready-to-use GitHub Actions workflow (`.github/workflows/deploy.yml`).
-
-1. Push your repository to GitHub:
-   ```bash
-   git remote add origin https://github.com/theanshukr/Interview-Agent-AI.git
-   git branch -M main
-   git push -u origin main
-   ```
-2. In your GitHub repository:
-   - Go to **Settings** > **Pages**.
-   - Under **Source**, select **GitHub Actions**.
-3. Every push to `main` will automatically build and deploy your site to:
-   `https://theanshukr.github.io/Interview-Agent-AI/`
-
-### Option 2: GitHub Pages Manual Deployment (`gh-pages`)
-Run the deployment script directly from your terminal:
-```bash
-npm run deploy
-```
-
-### Option 3: Deploying on Vercel / Netlify
-- **Vercel**: Import your repository into [Vercel](https://vercel.com). Framework preset: `Vite`. Build command: `npm run build`, Output directory: `dist`.
-- **Netlify**: Import project into [Netlify](https://netlify.com). Build command: `npm run build`, Publish directory: `dist`.
-
----
-
-## 🛠️ Environment Configuration (`.env`)
-
-This project uses Vite environment variables. Sample templates are provided in `.env.example`.
-
-### Creating `.env` File
-Create a `.env` file in the root directory:
-```bash
-# Copy from example
-cp .env.example .env
-```
-
-### Supported Environment Variables
-
-| Variable | Description | Default / Example |
-| :--- | :--- | :--- |
-| `VITE_APP_TITLE` | Application Title | `AI Interview Agent` |
-| `VITE_APP_DESCRIPTION` | Subtitle / Short Description | `Curriculum-aware AI Technical Interview Platform` |
-| `VITE_ENABLE_MOCK_ENGINE` | Enable offline candidate/interview mock engine | `true` |
-| `VITE_OLLAMA_HOST` | Local Ollama server endpoint | `http://localhost:11434` |
-| `VITE_OPENAI_API_KEY` | (Optional) OpenAI API Key for live LLM response | `sk-...` |
-
----
-
-## 🚀 Quick Start (Local Setup)
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-cd "Interview Agent AI"
-```
-
-### 2. Install Dependencies
+### 1. Install Dependencies
 ```bash
 npm install
 ```
 
-### 3. Setup Environment Variables
+### 2. Configure Environment Variables
+Create `.env` from `.env.example`:
 ```bash
 cp .env.example .env
 ```
+Ensure your `GEMINI_API_KEY` (or `VITE_GEMINI_API_KEY`) is populated in `.env`.
 
-### 4. Start Local Development Server
+### 3. Run Backend Server & Frontend Together
+Launch both the Express backend (`http://localhost:3001`) and Vite dev server (`http://localhost:5173`) with a single command:
 ```bash
 npm run dev
 ```
+
 Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+> Note: To run the frontend in zero-backend offline mode for local judging, set `VITE_ENABLE_MOCK_ENGINE=true` in `.env`.
 
 ---
 
 ## 📦 Scripts Overview
 
 ```bash
-# Start Vite development server
+# Start Express backend & Vite dev server concurrently
 npm run dev
 
-# Build production distribution into dist/
+# Start Node Express server only (Port 3001)
+npm run dev:server
+
+# Start Vite frontend dev server only (Port 5173)
+npm run dev:vite
+
+# Build production bundle into dist/
 npm run build
 
-# Preview production build locally
-npm run preview
-
-# Run linter
+# Run linter & type checks
 npm run lint
-
-# Run TypeScript type check
 npm run typecheck
+```
 
-# Deploy to GitHub Pages
-npm run deploy
+---
+
+---
+
+## 🔌 API Integration & Endpoints
+
+The system relies on two primary API layers for intelligence and session orchestration:
+
+### 1. Google Gemini AI Model API
+- **Model**: `gemini-1.5-flash` via `@google/generative-ai` SDK & REST endpoints.
+- **Header Authentication**: `x-gemini-api-key` header (or server-side `GEMINI_API_KEY` environment variable).
+- **Structured Output**: Enforces strict JSON Schema outputs (`response_mime_type: "application/json"`) for deterministic 1–10 multi-dimension scoring and standardized feedback reports.
+
+### 2. Backend Server Endpoints (Node / Express on Port 3001)
+- **`POST /api/interview`**: Core technical spec endpoint handling both session initialization and conversation turns.
+  - **Start Interview**: `{ "sessionId": "string", "candidate": { ... } }` → Initializes session, picks Day 1 curriculum topic, records 60-minute start/end timestamps, and returns opening question.
+  - **Continue Interview**: `{ "sessionId": "string", "message": "string" }` → Validates candidate session, evaluates answer via Gemini JSON schema, adjusts difficulty, and returns next question or final feedback summary when complete.
+- **`POST /api/reset`**: Resets all active in-memory server interview sessions in `sessionStore`.
+- **`GET /api/health`**: Returns server status, uptime, and active session count.
+
+---
+
+## 🤖 How the AI Model Evaluates & Generates Answers
+
+Atlas (the AI Interviewer) follows a multi-stage evaluation pipeline for every candidate response turn:
+
+```
+Candidate Response ──► Intent Classification ──► Multi-Dimension Scoring ──► Difficulty Adjustment ──► Adaptive Next Question / Summary
+```
+
+1. **Response Intent Classification**:
+   - **`VALID_ANSWER`**: Evaluates technical accuracy, architectural reasoning, and depth.
+   - **`SKIP`**: Candidate passes or says "I don't know" / "no idea". Adjusts difficulty down (-2) and moves gracefully to the next topic without penalizing communication.
+   - **`GIBBERISH`**: Random text, filler ("nice question", "ok"), or off-topic banter. The model gently prompts the candidate for a technical answer without incrementing question count.
+2. **1–10 Multi-Dimension Scoring**:
+   - **Technical Correctness** (1–10)
+   - **Explanation Depth** (1–10)
+   - **Logical Reasoning** (1–10)
+   - **Communication Clarity** (1–10)
+3. **Dynamic Difficulty Adjustment**:
+   - Starting at difficulty 5/10, the engine adapts question difficulty after each turn (+1 for strong answers, -1 for brief answers, -2 for skipped questions).
+4. **7-Competency Radar Synthesis**:
+   - Upon interview completion (or 60-minute timer expiration), Gemini synthesizes an executive feedback summary featuring overall readiness %, key strengths, knowledge gaps, recommended next steps, and scores across 7 dimensions (Knowledge, Accuracy, Communication, Confidence, Depth, Reasoning, Practical).
+5. **Heuristic Fallback**:
+   - If no Gemini API key is configured, the engine falls back seamlessly to a deterministic word-count & keyword heuristic algorithm. The UI explicitly displays an **"AI-Graded"** (Sparkles) vs. **"Heuristic"** (Cpu) badge so evaluators can verify key usage.
+
+---
+
+## 🔄 Resetting Student / Candidate Activity
+
+You can reset student activity, interview progress, and test sessions using any of the following 3 methods:
+
+### Method 1: Via the Web Application (Settings UI)
+1. Open the application in your browser and click **Settings** (or navigate to `/settings`).
+2. Scroll to the bottom of the workspace settings card.
+3. Click **"Reset local candidate storage"**.
+4. Confirm the prompt to restore candidate data and session history back to seed cohort defaults.
+
+### Method 2: Via Server REST API Endpoint
+To clear all active backend interview sessions on the Express server:
+```bash
+curl -X POST http://localhost:3001/api/reset
+```
+Response:
+```json
+{
+  "status": "ok",
+  "message": "All active interview sessions have been reset."
+}
+```
+
+### Method 3: Via Code / Browser Console
+In browser dev tools console or client scripts, invoke the built-in reset helper:
+```javascript
+import { apiClient } from "@/lib/apiClient";
+
+// Reset candidate attempt data and interview session storage
+apiClient.resetAllData();
 ```
 
 ---
@@ -137,35 +158,44 @@ npm run deploy
 ## 📁 Repository Structure
 
 ```
-├── .github/workflows/deploy.yml   # GitHub Actions deployment workflow
+├── hackethon document/
+│   ├── candidates.json            # Candidate seed data
+│   ├── curriculum.json            # 31-day AI engineering curriculum source of truth
+│   └── technical-spec.md          # Graded hackathon API specification
+├── server/
+│   ├── index.js                   # Node/Express app listening on PORT 3001 (POST /api/interview & POST /api/reset)
+│   ├── engine.js                  # Adaptive interview state machine & timer enforcement
+│   ├── curriculum.js              # Curriculum JSON loader & adaptive question picker
+│   ├── llmEvaluator.js            # Structured JSON schema Gemini grading & feedback synthesizer
+│   └── sessionStore.js            # Server-side in-memory session manager (Redis-swappable)
 ├── src/
-│   ├── api/                       # Base44 SDK client
 │   ├── components/                # Reusable UI components & Layouts
-│   │   ├── candidate/             # Candidate card, onboarding modal
-│   │   ├── interview/             # CodeSandbox, InterviewerCard, Report
-│   │   └── ui/                    # Buttons, Badges, Tabs, Radix components
-│   ├── lib/                       # Core engine, interview API, seed data
-│   │   ├── interviewApi.js        # Dynamic adaptive question engine
-│   │   ├── apiClient.js           # Client-side persistence engine
-│   │   └── candidateData.js       # Data normalization & metrics
-│   ├── pages/                     # Application routes
-│   │   ├── Dashboard.jsx          # Executive candidate metrics
-│   │   ├── Candidates.jsx         # Candidate roster & onboarding
-│   │   ├── InterviewSession.jsx   # Live interactive interview interface
-│   │   ├── PostInterviewReport.jsx# 7-competency radar breakdown & PDF export
-│   │   └── Settings.jsx           # Model & API configuration
-│   ├── App.jsx                    # Navigation router
+│   │   ├── ui/                    # Radix UI primitives & toast components
+│   │   ├── Avatar.jsx             # Candidate avatar generator
+│   │   ├── CodeSandbox.jsx        # Interactive coding sandbox
+│   │   ├── ImportDataModal.jsx    # Candidate bulk JSON/CSV import modal
+│   │   ├── InterviewProgress.jsx # Progress tracker
+│   │   ├── InterviewTimer.jsx    # Interview countdown clock
+│   │   ├── RadarScore.jsx         # Recharts 7-competency radar chart
+│   │   └── TopNav.jsx             # Global header & navigation bar
+│   ├── lib/
+│   │   ├── interviewApi.js        # Client API caller fetching POST /api/interview
+│   │   ├── apiClient.js           # Client local store persistence helper
+│   │   ├── candidateData.js       # Candidate data normalization & metrics
+│   │   └── seedCandidates.js      # Default candidate seed data
+│   ├── pages/                     # Application route views
+│   │   ├── Dashboard.jsx          # Executive candidate roster & readiness dashboard
+│   │   ├── CandidateProfile.jsx   # Individual candidate detail & mission history
+│   │   ├── SelectCandidate.jsx    # Candidate selection for interview launch
+│   │   ├── Interview.jsx          # Live interactive interview interface & chat
+│   │   ├── Feedback.jsx           # Post-interview report & competency radar
+│   │   ├── Curriculum.jsx         # 31-day cohort curriculum browser
+│   │   └── Settings.jsx           # Model & API configuration settings
+│   ├── App.jsx                    # Navigation router setup
 │   └── main.jsx                   # React entry point
+├── ARCHITECTURE.md                # Detailed technical architecture document
 ├── .env.example                   # Environment variable template
-├── .env                           # Local environment file (git-ignored)
-├── .gitignore                     # Git exclusion settings
-├── package.json                   # Project scripts and dependencies
+├── package.json                   # Project dependencies and script runners
 ├── tailwind.config.js             # Tailwind CSS configuration
-└── vite.config.js                 # Vite bundler configuration
+└── vite.config.js                 # Vite bundler configuration & /api proxy setup
 ```
-
----
-
-## 🛡️ License & Contributing
-
-Built with ❤️ for AI Engineering and Technical Assessment workflows. Free for personal and commercial use.

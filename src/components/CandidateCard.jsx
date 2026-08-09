@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Briefcase, Calendar, FileText, Github, GraduationCap, Linkedin } from "lucide-react";
+import { Briefcase, Calendar, CheckCircle2, Clock, FileText, Github, GraduationCap, Linkedin, PauseCircle, Play, TriangleAlert } from "lucide-react";
 import Avatar from "@/components/Avatar";
+import { getCandidateSession } from "@/lib/interviewApi";
+import { useInterviewTimer } from "@/hooks/useInterviewTimer";
 import { cn } from "@/lib/utils";
 
 function MiniRing({ value }) {
@@ -23,9 +25,67 @@ function MiniRing({ value }) {
   );
 }
 
+function formatClock(ms) {
+  const total = Math.max(0, Math.ceil((ms || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+// Small status pill reflecting the candidate's real interview session state.
+function SessionState({ session, remaining }) {
+  if (!session) return null;
+  if (session.status === "active") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-success/50 dot-pulse" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
+        </span>
+        Live · {formatClock(remaining)} remaining
+      </span>
+    );
+  }
+  if (session.status === "paused") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
+        <PauseCircle className="h-3 w-3" /> Paused
+      </span>
+    );
+  }
+  if (session.endedBy === "timeout") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-destructive">
+        <TriangleAlert className="h-3 w-3" /> Time expired
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success">
+      <CheckCircle2 className="h-3 w-3" /> Completed
+    </span>
+  );
+}
+
 export default function CandidateCard({ candidate, onStart, onView, selected, starting }) {
   const c = candidate;
   const isStarting = starting === c.candidateId;
+
+  const [session, setSession] = useState(() => getCandidateSession(c.candidateId));
+  useEffect(() => {
+    const update = () => setSession(getCandidateSession(c.candidateId));
+    update();
+    window.addEventListener("sessions-changed", update);
+    return () => window.removeEventListener("sessions-changed", update);
+  }, [c.candidateId]);
+
+  const live = session && (session.status === "active" || session.status === "paused");
+  const cardTimer = useInterviewTimer({
+    status: session?.status === "active" ? "active" : "ready",
+    interviewEndTime: session?.status === "active" ? session.interviewEndTime : null,
+    pausedRemainingMs: session?.status === "paused" ? session.pausedRemainingMs : null,
+  });
+
   const missions = c.missions || [];
   const completed = missions.filter((m) => !m.skipped && m.passed).length;
   const totalDays = 31;
@@ -61,6 +121,17 @@ export default function CandidateCard({ candidate, onStart, onView, selected, st
         </div>
         <MiniRing value={c.readinessScore} />
       </div>
+
+      {session && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SessionState session={session} remaining={cardTimer.remaining} />
+          {session.status === "active" && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <Clock className="h-3 w-3" /> Question {session.questionNumber || 1}/{session.targetQuestions || 8}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 p-3">
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -114,9 +185,16 @@ export default function CandidateCard({ candidate, onStart, onView, selected, st
         <button
           onClick={onStart}
           disabled={isStarting}
-          className="flex-1 rounded-xl bg-primary px-3 py-2.5 text-[13px] font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+          className={cn(
+            "flex-1 rounded-xl px-3 py-2.5 text-[13px] font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
+            live ? "border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15" : "bg-primary text-primary-foreground hover:bg-primary/90"
+          )}
         >
-          {isStarting ? "Starting…" : "Start interview"}
+          {isStarting ? "Starting…" : live ? (
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <Play className="h-3.5 w-3.5" /> Continue interview
+            </span>
+          ) : "Start interview"}
         </button>
         <button
           onClick={onView}
