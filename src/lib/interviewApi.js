@@ -233,57 +233,99 @@ export function resetCandidateAttempts() {
   return ensureSeedData();
 }
 
-// 8+ Curriculum Questions Bank covering 8 distinct days
-const QUESTION_BANK = [
-  {
-    day: 1,
+// 8+ Curriculum Questions Bank covering all curriculum days with distinct questions
+const CURRICULUM_QUESTIONS_BY_DAY = {
+  1: {
     topic: "VS Code & Python Environment Setup",
-    type: "SETUP",
     question: "How do you structure and activate an isolated Python virtual environment (.venv) in VS Code, and why is environment isolation critical when delivering production AI projects?",
   },
-  {
-    day: 3,
+  2: {
+    topic: "Local LLM & AI Coding Assistant Setup",
+    question: "Explain how you set up Ollama with Qwen2.5-Coder locally, connect it to VS Code via Copilot or Cline, and verify offline code generation capabilities.",
+  },
+  3: {
     topic: "First AI Project, React Frontend & FastAPI",
-    type: "BUILD",
     question: "Explain how you connect a Vite React frontend to a FastAPI endpoint serving LLM responses, including handling CORS, error boundaries, and streaming output.",
   },
-  {
-    day: 7,
+  4: {
+    topic: "Reading & Processing Structured Data",
+    question: "How do you clean and transform structured data using Pandas, store it in SQLite, and construct SQL queries for downstream chatbot integration?",
+  },
+  5: {
+    topic: "Reading & Processing Unstructured Data",
+    question: "What text extraction techniques (PDF parsing, OCR, BeautifulSoup) do you use to clean noisy unstructured files before feeding them into an AI pipeline?",
+  },
+  6: {
+    topic: "Building the Knowledge Base",
+    question: "How do you chunk documents, attach metadata (such as source or section), and format them into structured JSONL records for vector indexing?",
+  },
+  7: {
     topic: "Vector Embeddings & Semantic Search",
-    type: "AI_CORE",
     question: "Explain the mathematics behind cosine similarity in dense vector spaces, and how embedding model dimensions impact retrieval latency in RAG pipelines.",
   },
-  {
-    day: 10,
+  8: {
+    topic: "Vector Databases Overview",
+    question: "How do you evaluate local ChromaDB versus cloud Pinecone for vector storage, and how do indexing algorithms (like HNSW) impact query latency in RAG systems?",
+  },
+  9: {
+    topic: "Building & Populating Vector DB",
+    question: "Walk me through populating a vector database with chunked embeddings, handling batch indexing limits, and ensuring metadata filtering works accurately.",
+  },
+  10: {
     topic: "Retrieval & Matching Engine",
-    type: "AI_CORE",
     question: "When building a RAG retrieval engine, how do you handle metadata filtering, hybrid search (keyword + vector), and chunk overlap ratios to minimize context dilution?",
   },
-  {
-    day: 12,
+  11: {
+    topic: "RAG End-to-End & LLM API Basics",
+    question: "Walk me through your end-to-end RAG pipeline from query receipt to vector lookup, context insertion into the prompt, and LLM response generation.",
+  },
+  12: {
     topic: "Prompt Engineering & Structured Outputs",
-    type: "AI_CORE",
-    question: "How do you enforce JSON Schema adherence in LLM outputs to prevent hallucination and ensure deterministic downstream API calls?",
+    question: "How do you enforce JSON Schema compliance in LLM outputs to prevent hallucinations and guarantee deterministic parsing in downstream microservices?",
   },
-  {
-    day: 16,
+  13: {
+    topic: "Function Calling & Structured Outputs",
+    question: "Explain how function calling allows an LLM to invoke external backend tools deterministically, including how you handle schema definitions and error fallbacks.",
+  },
+  16: {
     topic: "Chatbot Backend & API Integration",
-    type: "BUILD",
-    question: "What architectural patterns do you apply when managing multi-turn conversation memory, token limits, and context truncation in FastAPI production endpoints?",
+    question: "What architectural patterns do you apply when managing multi-turn conversation memory, sliding window context truncation, and token limits in FastAPI production endpoints?",
   },
-  {
-    day: 23,
-    topic: "Model Context Protocol (MCP) & Agentic AI",
-    type: "AGENTS",
+  18: {
+    topic: "Streaming Responses",
+    question: "How do you implement Server-Sent Events (SSE) or WebSockets in FastAPI to stream LLM tokens in real time to a React UI without UI blocking?",
+  },
+  20: {
+    topic: "Conversation Memory & Context Management",
+    question: "How do you design stateful session persistence for multi-turn AI agents while avoiding exponential token cost growth and context window overflow?",
+  },
+  21: {
+    topic: "LangChain Agents",
+    question: "How do you construct ReAct-style agent loops in LangChain, and how do you manage tool state, loop detection, and agent execution boundaries?",
+  },
+  22: {
+    topic: "Multi-Agent Orchestration",
+    question: "Explain how you coordinate specialized AI sub-agents (e.g. planner, researcher, coder) to solve multi-step tasks while preventing infinite loop execution.",
+  },
+  23: {
+    topic: "Model Context Protocol (MCP)",
     question: "How does Model Context Protocol (MCP) decouple model reasoning from external tool execution, and how do you handle tool execution failures or timeout retries?",
   },
-  {
-    day: 28,
-    topic: "Docker & Kubernetes AI Deployment",
-    type: "EVAL",
+  28: {
+    topic: "Docker & Kubernetes Deployment",
     question: "What strategies do you use when containerizing Python/Ollama AI microservices with Docker, and how do you configure resource limits (GPU/RAM) in Kubernetes?",
   },
-];
+  29: {
+    topic: "Monitoring, Logging & Observability",
+    question: "How do you instrument telemetry, log LLM latency/token consumption, and set up evaluation alerts for production AI applications?",
+  },
+  31: {
+    topic: "Capstone Project & Final Demo",
+    question: "Looking back at your Capstone Project, walk me through the end-to-end architecture, key performance bottlenecks you benchmarked, and how you validated system readiness.",
+  },
+};
+
+const DEFAULT_DAYS_ORDER = [1, 3, 7, 10, 12, 16, 23, 28];
 
 function isCommentOrGibberish(text) {
   const t = (text || "").toLowerCase().trim();
@@ -306,7 +348,6 @@ function isCommentOrGibberish(text) {
   }
   return false;
 }
-
 
 function isNonAnswer(text) {
   const t = (text || "").toLowerCase().trim();
@@ -334,81 +375,106 @@ function generateAdaptiveQuestion(candidate, questionNumber, currentDifficulty, 
   const missions = candidate?.missions || [];
   const targetMission = missions[questionNumber % missions.length] || null;
 
-  if (targetMission && targetMission.day) {
+  if (targetMission && targetMission.day && CURRICULUM_QUESTIONS_BY_DAY[targetMission.day]) {
+    const qData = CURRICULUM_QUESTIONS_BY_DAY[targetMission.day];
     return {
       day: targetMission.day,
-      topic: targetMission.title || "AI Engineering Core",
-      question: `Looking at Day ${targetMission.day} (${targetMission.title}): Walk me through how you implemented this module during your cohort, the key trade-offs you evaluated, and how you validated your design.`,
+      topic: qData.topic,
+      question: qData.question,
     };
   }
 
-  const bankItem = QUESTION_BANK[questionNumber % QUESTION_BANK.length];
+  const fallbackDay = DEFAULT_DAYS_ORDER[questionNumber % DEFAULT_DAYS_ORDER.length];
+  const qData = CURRICULUM_QUESTIONS_BY_DAY[fallbackDay] || CURRICULUM_QUESTIONS_BY_DAY[1];
   return {
-    day: bankItem.day,
-    topic: bankItem.topic,
-    question: bankItem.question,
+    day: fallbackDay,
+    topic: qData.topic,
+    question: qData.question,
   };
 }
 
-function extractKeyConcept(lastMessage) {
-  const text = (lastMessage || "").toLowerCase();
-  if (text.includes("vector") || text.includes("embedding") || text.includes("cosine")) return "vector embeddings and semantic search";
-  if (text.includes("fastapi") || text.includes("react") || text.includes("cors") || text.includes("vite")) return "API integration and frontend architecture";
-  if (text.includes("prompt") || text.includes("json") || text.includes("schema")) return "prompt engineering and structured outputs";
-  if (text.includes("docker") || text.includes("kubernetes") || text.includes("container") || text.includes("poetry")) return "reproducible environment setup and containerization";
-  if (text.includes("mcp") || text.includes("agent") || text.includes("tool")) return "agentic tool orchestration";
-  if (text.includes("rag") || text.includes("chunk") || text.includes("retrieval")) return "retrieval augmented generation (RAG)";
-  return "your practical implementation approach";
+function checkTopicRelevance(userMessage, answeredTopic) {
+  const text = (userMessage || "").toLowerCase();
+  const topic = (answeredTopic || "").toLowerCase();
+
+  const isEmbeddingsAnswer = ["vector", "embedding", "pinecone", "chroma", "recall@k", "cosine"].filter((kw) => text.includes(kw)).length >= 2;
+  const isReactAnswer = ["react", "vite", "fastapi", "cors", "component", "endpoint"].filter((kw) => text.includes(kw)).length >= 2;
+  const isDockerAnswer = ["docker", "kubernetes", "k8s", "container"].filter((kw) => text.includes(kw)).length >= 2;
+
+  let mismatch = null;
+  if (!topic.includes("embedding") && !topic.includes("vector") && isEmbeddingsAnswer) {
+    mismatch = "vector embeddings and vector databases";
+  } else if (!topic.includes("react") && !topic.includes("fastapi") && isReactAnswer) {
+    mismatch = "React & FastAPI integration";
+  } else if (!topic.includes("docker") && !topic.includes("kubernetes") && isDockerAnswer) {
+    mismatch = "Docker & Kubernetes containerization";
+  }
+
+  return mismatch;
 }
 
-function generateNaturalFallbackReply(userMessage, nextQNum, targetQuestions, nextQ) {
+function generateNaturalFallbackReply(userMessage, answeredTopic, nextQNum, targetQuestions, nextQ) {
   const text = (userMessage || "").trim();
   const wordCount = text ? text.split(/\s+/).length : 0;
-  const concept = extractKeyConcept(text);
+  const mismatch = checkTopicRelevance(text, answeredTopic);
 
-  const detailedFeedback = [
-    `That's a thorough breakdown regarding ${concept}. Your technical reasoning covers the critical operational trade-offs well.`,
-    `Good technical insights on ${concept}. I appreciate how you structured the implementation and validation steps.`,
-    `Solid explanation of ${concept}. You've highlighted the essential architectural decisions and edge cases clearly.`,
-    `Clear and structured response regarding ${concept}. That demonstrates strong practical awareness for a production system.`,
-  ];
+  let feedback = "";
+  if (mismatch) {
+    feedback = `Thank you for sharing those details on ${mismatch}. Note that the previous question was specifically regarding **${answeredTopic}**. Make sure your response addresses the target topic. Let's move to the next topic.`;
+  } else {
+    const topic = answeredTopic || "your technical design";
+    const detailedFeedback = [
+      `Thank you for that breakdown of ${topic}. Your explanation highlights key operational considerations and trade-offs well.`,
+      `Good analysis regarding ${topic}. I appreciate how you structured your technical approach and validation steps.`,
+      `Clear and structured response on ${topic}. That demonstrates practical awareness for a production system.`,
+      `Understood — that gives a solid overview of your work with ${topic}. Your reasoning aligns well with cohort standards.`,
+    ];
+    const briefFeedback = [
+      `Got it — thank you for summarizing your approach to ${topic}.`,
+      `Makes sense. Good summary of your technical strategy for ${topic}.`,
+      `Understood. That gives me a clear picture of your implementation for ${topic}.`,
+    ];
+    const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
+    feedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
+  }
 
-  const briefFeedback = [
-    `Got it — thank you for that overview on ${concept}.`,
-    `Makes sense. Good summary of your approach to ${concept}.`,
-    `Understood. That gives me a clear picture of your work on ${concept}.`,
-  ];
-
-  const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
-  const chosenFeedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
-
-  return `${chosenFeedback}\n\nMoving to **Question ${nextQNum} of ${targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
+  return `${feedback}\n\nMoving to **Question ${nextQNum} of ${targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
 }
 
 async function callGeminiAPI(systemPrompt, userPrompt, apiKey) {
   if (!apiKey) return null;
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${systemPrompt}\n\nCandidate Response: "${userPrompt}"` },
-            ],
-          },
-        ],
-      }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch (e) {
-    console.warn("Gemini API call error:", e);
-    return null;
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: `${systemPrompt}\n\nCandidate Response: "${userPrompt}"` },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
+      } else {
+        const errText = await response.text();
+        console.warn(`Gemini API (${model}) non-ok status ${response.status}:`, errText);
+      }
+    } catch (e) {
+      console.warn(`Gemini API (${model}) fetch error:`, e);
+    }
   }
+  return null;
 }
 
 async function classifyResponseWithGemini(userText, currentTopic, apiKey) {
@@ -730,6 +796,7 @@ async function runClientMockInterview(payload) {
     notifySession(session, NOTIFICATION_TYPES.COMPLETED, "Interview completed", `${candidateLabel(session)} completed the interview.`);
     notifySession(session, NOTIFICATION_TYPES.RESULT, "Interview result generated", `Feedback is ready for ${candidateLabel(session)}.`);
   } else {
+    const answeredTopic = session.currentTopic || "AI Engineering Core";
     const nextQNum = currentQNum + 1;
     session.questionNumber = nextQNum;
     const nextQ = generateAdaptiveQuestion(candidate, nextQNum - 1, session.difficulty, session.messages);
@@ -746,13 +813,14 @@ async function runClientMockInterview(payload) {
         .join("\n");
 
       const systemPrompt = skipped
-        ? `You are Atlas, an expert AI Technical Interviewer. The candidate chose to skip or pass on the previous question.
+        ? `You are Atlas, an expert AI Technical Interviewer. The candidate chose to skip or pass on the previous question (${answeredTopic}).
 Acknowledge politely without praising them (e.g. "No problem at all, let's move on to the next topic.").
 Then ask Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic}) at difficulty ${session.difficulty}/10. Formulate a clear, practical technical question.`
         : `You are Atlas, an expert AI Technical Interviewer. Context so far:
 ${historyText}
 
-Evaluate the candidate's last response in 1-2 brief sentences.
+The question candidate just answered was on topic "${answeredTopic}".
+Evaluate the candidate's last response in 1-2 brief sentences specifically for "${answeredTopic}". If their response is off-topic or mentions an unrelated topic, note the mismatch politely.
 Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic}) at difficulty ${session.difficulty}/10. Ask an intelligent technical question exploring architecture or trade-offs.`;
 
       geminiReply = await callGeminiAPI(systemPrompt, payload.message, settings.geminiApiKey);
@@ -763,7 +831,7 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     } else if (skipped) {
       reply = `No problem at all — it's completely okay to pass on a specific topic. Let's move on to the next module.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     } else {
-      reply = generateNaturalFallbackReply(payload.message, nextQNum, session.targetQuestions, nextQ);
+      reply = generateNaturalFallbackReply(payload.message, answeredTopic, nextQNum, session.targetQuestions, nextQ);
     }
   }
 

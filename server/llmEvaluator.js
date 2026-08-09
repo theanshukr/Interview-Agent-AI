@@ -46,68 +46,81 @@ export function isNonAnswer(text) {
 // Low-level Gemini API Call with JSON Schema enforcement
 export async function callGeminiStructured(systemPrompt, userPrompt, apiKey, jsonSchema = null) {
   if (!apiKey) return null;
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const payload = {
-      contents: [
-        {
-          parts: [
-            { text: `${systemPrompt}\n\nCandidate Submission:\n"${userPrompt}"` }
-          ]
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [
+          {
+            parts: [
+              { text: `${systemPrompt}\n\nCandidate Submission:\n"${userPrompt}"` }
+            ]
+          }
+        ],
+        generationConfig: {
+          response_mime_type: "application/json",
         }
-      ],
-      generationConfig: {
-        response_mime_type: "application/json",
+      };
+
+      if (jsonSchema) {
+        payload.generationConfig.response_schema = jsonSchema;
       }
-    };
 
-    if (jsonSchema) {
-      payload.generationConfig.response_schema = jsonSchema;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleaned = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+          return JSON.parse(cleaned);
+        }
+      } else {
+        const errText = await response.text();
+        console.warn(`Gemini structured API (${model}) status ${response.status}:`, errText);
+      }
+    } catch (err) {
+      console.warn(`Gemini structured API (${model}) error:`, err);
     }
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.warn("Gemini API non-ok response:", response.status, errText);
-      return null;
-    }
-
-    const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) return null;
-
-    const cleaned = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch (err) {
-    console.warn("Gemini API structured call error:", err);
-    return null;
   }
+  return null;
 }
 
 // General text generation helper for interview responses
 export async function callGeminiText(prompt, apiKey) {
   if (!apiKey) return null;
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch (e) {
-    console.warn("Gemini text call error:", e);
-    return null;
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
+      } else {
+        const errText = await response.text();
+        console.warn(`Gemini text API (${model}) status ${response.status}:`, errText);
+      }
+    } catch (e) {
+      console.warn(`Gemini text API (${model}) error:`, e);
+    }
   }
+  return null;
 }
 
 // 1. Grade individual candidate answer against curriculum topic (1-10 scale)

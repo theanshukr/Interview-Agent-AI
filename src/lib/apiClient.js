@@ -80,19 +80,14 @@ export const apiClient = {
 
   // Settings
   getSettings() {
-    let envKey = import.meta.env.VITE_GEMINI_API_KEY || "";
-    if (!envKey) {
-      try {
-        envKey = atob("QVEuQWI4Uk42SWx3TzkxaHlGWk1FVnZXU3dremttM1lzZ1JXeU1yMmljRGVYYzc4UUpR");
-      } catch {
-        envKey = "";
-      }
-    }
+    const envKey = import.meta.env.VITE_GEMINI_API_KEY || "";
     const stored = localStore.getItem(STORAGE_KEYS.settings, {});
+    const keyToUse = (stored && typeof stored.geminiApiKey === "string" && stored.geminiApiKey.trim()) ? stored.geminiApiKey.trim() : envKey;
+
     return {
       llmProvider: "gemini", // "built-in" | "gemini" | "ollama" | "openai"
-      geminiApiKey: stored?.geminiApiKey || envKey,
-      geminiModel: "gemini-1.5-flash",
+      geminiApiKey: keyToUse,
+      geminiModel: "gemini-2.0-flash",
       ollamaUrl: "http://localhost:11434",
       ollamaModel: "qwen2.5-coder",
       openaiApiKey: "",
@@ -101,6 +96,7 @@ export const apiClient = {
       speechRate: 1.0,
       theme: "dark",
       ...stored,
+      geminiApiKey: keyToUse,
     };
   },
 

@@ -176,6 +176,7 @@ export async function processInterviewRequest(payload, apiKey = null) {
   }
 
   // Advance to next question
+  const answeredTopic = session.currentTopic || "AI Engineering Core";
   const nextQNum = currentQNum + 1;
   session.questionNumber = nextQNum;
   const nextQ = getAdaptiveQuestion(session.candidate, nextQNum - 1, session.difficulty);
@@ -190,13 +191,14 @@ export async function processInterviewRequest(payload, apiKey = null) {
       .join("\n");
 
     const systemPrompt = skipped
-      ? `You are Atlas, an expert AI Technical Interviewer. The candidate chose to skip or pass on the previous question.
+      ? `You are Atlas, an expert AI Technical Interviewer. The candidate chose to skip or pass on the previous question (${answeredTopic}).
 Acknowledge politely without praising them (e.g. "No problem at all, let's move on to the next topic.").
 Then ask Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic}) at difficulty ${session.difficulty}/10. Formulate a clear, practical technical question.`
       : `You are Atlas, an expert AI Technical Interviewer. Context so far:
 ${historyText}
 
-Evaluate the candidate's last response in 1-2 brief sentences.
+The question candidate just answered was on topic "${answeredTopic}".
+Evaluate the candidate's last response in 1-2 brief sentences specifically for "${answeredTopic}". If their response is off-topic or mentions an unrelated topic, note the mismatch politely.
 Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic}) at difficulty ${session.difficulty}/10. Ask an intelligent technical question exploring architecture or trade-offs.`;
 
     const llmReply = await callGeminiText(systemPrompt, apiKey);
@@ -209,20 +211,33 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     } else {
       const text = (userMessage || "").trim();
       const wordCount = text ? text.split(/\s+/).length : 0;
-      const detailedFeedback = [
-        `That's a thorough breakdown regarding ${nextQ.topic}. Your technical reasoning covers the critical operational trade-offs well.`,
-        `Good technical insights on ${nextQ.topic}. I appreciate how you structured the implementation and validation steps.`,
-        `Solid explanation of ${nextQ.topic}. You've highlighted the essential architectural decisions and edge cases clearly.`,
-        `Clear and structured response regarding ${nextQ.topic}. That demonstrates strong practical awareness for a production system.`,
-      ];
-      const briefFeedback = [
-        `Got it — thank you for that overview on ${nextQ.topic}.`,
-        `Makes sense. Good summary of your approach to ${nextQ.topic}.`,
-        `Understood. That gives me a clear picture of your work on ${nextQ.topic}.`,
-      ];
-      const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
-      const chosenFeedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
-      reply = `${chosenFeedback}\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
+      
+      const isEmbeddingsAnswer = ["vector", "embedding", "pinecone", "chroma", "recall@k", "cosine"].filter((kw) => text.toLowerCase().includes(kw)).length >= 2;
+      const isReactAnswer = ["react", "vite", "fastapi", "cors", "component", "endpoint"].filter((kw) => text.toLowerCase().includes(kw)).length >= 2;
+      const topicLower = answeredTopic.toLowerCase();
+
+      let feedback = "";
+      if (!topicLower.includes("embedding") && !topicLower.includes("vector") && isEmbeddingsAnswer) {
+        feedback = `Thank you for sharing those details on vector embeddings. Note that the previous question was specifically regarding **${answeredTopic}**. Make sure your response addresses the target topic. Let's move to the next topic.`;
+      } else if (!topicLower.includes("react") && !topicLower.includes("fastapi") && isReactAnswer) {
+        feedback = `Thank you for sharing those details on React & FastAPI. Note that the previous question was specifically regarding **${answeredTopic}**. Make sure your response addresses the target topic. Let's move to the next topic.`;
+      } else {
+        const detailedFeedback = [
+          `Thank you for that breakdown of ${answeredTopic}. Your technical explanation covers the core design considerations and trade-offs well.`,
+          `Good analysis regarding ${answeredTopic}. I appreciate how you structured your practical approach and validation steps.`,
+          `Clear and structured response on ${answeredTopic}. That demonstrates practical awareness for a production system.`,
+          `Understood — that gives a solid overview of your work with ${answeredTopic}. Your reasoning aligns well with cohort standards.`,
+        ];
+        const briefFeedback = [
+          `Got it — thank you for summarizing your approach to ${answeredTopic}.`,
+          `Makes sense. Good summary of your technical strategy for ${answeredTopic}.`,
+          `Understood. That gives me a clear picture of your implementation for ${answeredTopic}.`,
+        ];
+        const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
+        feedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
+      }
+
+      reply = `${feedback}\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     }
   }
 
