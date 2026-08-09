@@ -710,41 +710,7 @@ async function runClientMockInterview(payload) {
   };
 
   const settings = apiClient.getSettings();
-  let llmAnalysis = null;
-
-  if (settings.llmProvider === "gemini" && settings.geminiApiKey) {
-    llmAnalysis = await classifyResponseWithGemini(payload.message, session.currentTopic || "AI Engineering", settings.geminiApiKey);
-  }
-
-  const category = llmAnalysis?.category || (isCommentOrGibberish(payload.message) ? "GIBBERISH" : isNonAnswer(payload.message) ? "SKIP" : "VALID_ANSWER");
-
-  if (category === "GIBBERISH") {
-    const currentQNum = session.questionNumber || 1;
-    const reply = llmAnalysis?.acknowledgment || `I'm Atlas, your technical interviewer! Take a moment to share your technical response for Question ${currentQNum}.`;
-    session.messages.push({ role: "candidate", content: payload.message });
-    session.messages.push({ role: "interviewer", content: reply });
-    session.updatedAt = new Date().toISOString();
-
-    const updatedSessions = [...existingSessions.filter((s) => s.sessionId !== sessionId), session];
-    apiClient.saveSessions(updatedSessions);
-
-    return {
-      reply,
-      done: false,
-      sessionId,
-      candidate,
-      status: session.status,
-      questionNumber: currentQNum,
-      currentDay: session.currentDay,
-      currentTopic: session.currentTopic,
-      difficulty: session.difficulty,
-      coveredDays: session.coveredDays,
-      targetQuestions: session.targetQuestions,
-      feedback: session.feedback,
-      interviewEndTime: session.interviewEndTime,
-      pausedRemainingMs: session.pausedRemainingMs,
-    };
-  }
+  const category = isNonAnswer(payload.message) ? "SKIP" : "VALID_ANSWER";
 
   session.messages.push({ role: "candidate", content: payload.message });
 

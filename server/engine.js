@@ -128,29 +128,7 @@ export async function processInterviewRequest(payload, apiKey = null) {
 
   const userMessage = (message || "").trim();
 
-  // Gibberish / Off-topic handling
-  if (isGibberish(userMessage)) {
-    const currentQNum = session.questionNumber || 1;
-    const reply = `I'm Atlas, your technical interviewer! Take a moment to share your technical response for Question ${currentQNum}.`;
-    session.messages.push({ role: "candidate", content: userMessage });
-    session.messages.push({ role: "interviewer", content: reply });
-    sessionStore.set(sessionId, session);
 
-    return {
-      reply,
-      done: false,
-      sessionId,
-      candidate: session.candidate,
-      status: session.status,
-      questionNumber: currentQNum,
-      currentDay: session.currentDay,
-      currentTopic: session.currentTopic,
-      difficulty: session.difficulty,
-      coveredDays: session.coveredDays,
-      targetQuestions: session.targetQuestions,
-      interviewEndTime: session.interviewEndTime,
-    };
-  }
 
   // Record candidate turn
   session.messages.push({ role: "candidate", content: userMessage });

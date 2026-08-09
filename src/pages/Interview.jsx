@@ -191,22 +191,8 @@ export default function Interview() {
   }, [messages, streamingText, busy]);
 
   function streamReply(fullText) {
-    return new Promise((resolve) => {
-      if (streamTimer.current) clearInterval(streamTimer.current);
-      const words = fullText.split(/(\s+)/);
-      let i = 0;
-      setStreamingText("");
-      streamTimer.current = setInterval(() => {
-        i += 1;
-        setStreamingText(words.slice(0, i).join(""));
-        if (i >= words.length) {
-          clearInterval(streamTimer.current);
-          streamTimer.current = null;
-          setStreamingText("");
-          resolve(fullText);
-        }
-      }, 28);
-    });
+    setStreamingText("");
+    return Promise.resolve(fullText);
   }
 
   async function handleSend(e) {
