@@ -8,6 +8,14 @@
 
 ---
 
+## 🔗 Quick Links & Live Demo
+
+- 🚀 **Live Demo Web Application**: [https://theanshukr.github.io/Interview-Agent-AI/](https://theanshukr.github.io/Interview-Agent-AI/)
+- 📦 **GitHub Source Repository**: [https://github.com/theanshukr/Interview-Agent-AI](https://github.com/theanshukr/Interview-Agent-AI)
+- 📄 **Technical Architecture Docs**: [ARCHITECTURE.md](file:///c:/Users/ALEC/Downloads/Interview-Agent-AI%20%282%29/Interview-Agent-AI/ARCHITECTURE.md)
+
+---
+
 ## 🌟 Overview
 
 **Enterprise AI Interview Agent** is an end-to-end, curriculum-aware AI platform designed to conduct dynamic, adaptive technical interviews for software and AI engineering roles. Grounded in an 8-topic AI Engineering curriculum (from setup to vector search & RAG pipelines), it maintains session state via a server-side engine, enforces a server-recorded 60-minute interview limit, grades candidate responses on a 1–10 scale using strict JSON schema LLM evaluation, and synthesizes 7-competency evaluation reports with single-click PDF export.
