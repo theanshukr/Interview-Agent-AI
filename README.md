@@ -9,6 +9,7 @@
 
 - 🚀 **Live Demo Web Application**: [https://theanshukr.github.io/Interview-Agent-AI/](https://theanshukr.github.io/Interview-Agent-AI/)
 - 📦 **GitHub Source Repository**: [https://github.com/theanshukr/Interview-Agent-AI](https://github.com/theanshukr/Interview-Agent-AI)
+- 🤖 **AI Usage Log & Prompt History**: [PROMPTS.md](file:///c:/Users/ALEC/Downloads/Interview-Agent-AI%20%282%29/Interview-Agent-AI/PROMPTS.md)
 - 📄 **Technical Architecture Docs**: [ARCHITECTURE.md](file:///c:/Users/ALEC/Downloads/Interview-Agent-AI%20%282%29/Interview-Agent-AI/ARCHITECTURE.md)
 
 ---
