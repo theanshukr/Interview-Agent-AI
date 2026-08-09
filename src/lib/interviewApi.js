@@ -413,26 +413,29 @@ function checkTopicRelevance(userMessage, answeredTopic) {
   return mismatch;
 }
 
-function generateNaturalFallbackReply(userMessage, answeredTopic, nextQNum, targetQuestions, nextQ) {
+function generateNaturalFallbackReply(userMessage, answeredTopic, nextQNum, targetQuestions, nextQ, evalResult = {}) {
   const text = (userMessage || "").trim();
   const wordCount = text ? text.split(/\s+/).length : 0;
   const mismatch = checkTopicRelevance(text, answeredTopic);
 
   let feedback = "";
-  if (mismatch) {
-    feedback = `Thank you for sharing those details on ${mismatch}. Note that the previous question was specifically regarding **${answeredTopic}**. Make sure your response addresses the target topic. Let's move to the next topic.`;
+  if (evalResult.repeated) {
+    feedback = `Duplicate Response Detected: This answer is identical to a response provided in a previous turn. To receive technical credit for **${answeredTopic}**, please provide a dedicated, topic-specific answer.`;
+  } else if (mismatch || evalResult.mismatched) {
+    const mismatchName = mismatch || "an unrelated module";
+    feedback = `Topic Mismatch: Your answer discusses ${mismatchName}, whereas Question ${nextQNum - 1} was asking specifically about **${answeredTopic}**. Make sure your response addresses the target topic directly.`;
   } else {
     const topic = answeredTopic || "your technical design";
     const detailedFeedback = [
-      `Thank you for that breakdown of ${topic}. Your explanation highlights key operational considerations and trade-offs well.`,
-      `Good analysis regarding ${topic}. I appreciate how you structured your technical approach and validation steps.`,
-      `Clear and structured response on ${topic}. That demonstrates practical awareness for a production system.`,
-      `Understood — that gives a solid overview of your work with ${topic}. Your reasoning aligns well with cohort standards.`,
+      `Regarding ${topic}: Your technical explanation highlights key operational considerations and trade-offs well.`,
+      `On the topic of ${topic}: Good analysis of your practical approach and validation steps.`,
+      `For ${topic}: Your technical reasoning demonstrates clear structural awareness for a production system.`,
+      `Understood on ${topic}: That provides a solid overview of your work aligned with cohort standards.`,
     ];
     const briefFeedback = [
-      `Got it — thank you for summarizing your approach to ${topic}.`,
-      `Makes sense. Good summary of your technical strategy for ${topic}.`,
-      `Understood. That gives me a clear picture of your implementation for ${topic}.`,
+      `Got it — noted your technical summary regarding ${topic}.`,
+      `Makes sense. Good overview of your strategy for ${topic}.`,
+      `Understood. That gives a clear picture of your implementation for ${topic}.`,
     ];
     const feedbackList = wordCount > 25 ? detailedFeedback : briefFeedback;
     feedback = feedbackList[(nextQNum + wordCount) % feedbackList.length];
@@ -501,8 +504,9 @@ Reply strictly in valid JSON format:
   }
 }
 
-function evaluateAnswerAndAdapt(candidateAnswer, currentDifficulty) {
+function evaluateAnswerAndAdapt(candidateAnswer, currentTopic, currentDifficulty = 5, previousAnswers = []) {
   const text = (candidateAnswer || "").trim();
+  const cleanText = text.toLowerCase();
   const skipped = isNonAnswer(text);
 
   if (skipped) {
@@ -512,7 +516,44 @@ function evaluateAnswerAndAdapt(candidateAnswer, currentDifficulty) {
       reasoning: 2,
       communication: 5,
       skipped: true,
+      repeated: false,
+      mismatched: false,
       newDifficulty: Math.max(1, currentDifficulty - 2),
+    };
+  }
+
+  // Check for repeated duplicate answer from previous turns
+  const isDuplicate = (previousAnswers || []).some((prev) => {
+    const p = (prev || "").trim().toLowerCase();
+    if (!p || p.length < 15) return false;
+    return p === cleanText || (cleanText.length > 30 && (cleanText.includes(p) || p.includes(cleanText)));
+  });
+
+  if (isDuplicate) {
+    return {
+      technicalCorrectness: 2,
+      depth: 1,
+      reasoning: 1,
+      communication: 3,
+      skipped: false,
+      repeated: true,
+      mismatched: false,
+      newDifficulty: Math.max(1, currentDifficulty - 2),
+    };
+  }
+
+  // Check for topic mismatch
+  const mismatch = checkTopicRelevance(cleanText, currentTopic);
+  if (mismatch) {
+    return {
+      technicalCorrectness: 3,
+      depth: 2,
+      reasoning: 2,
+      communication: 5,
+      skipped: false,
+      repeated: false,
+      mismatched: true,
+      newDifficulty: Math.max(1, currentDifficulty - 1),
     };
   }
 
@@ -529,20 +570,46 @@ function evaluateAnswerAndAdapt(candidateAnswer, currentDifficulty) {
     reasoning: Math.min(10, Math.max(4, 6 + delta)),
     communication: Math.min(10, Math.max(5, wordCount > 20 ? 8 : 4)),
     skipped: false,
+    repeated: false,
+    mismatched: false,
     newDifficulty,
   };
 }
 
-function generateFeedbackSummary(candidate, evaluations, finalDifficulty, opts = {}) {
+function generateFeedbackSummary(candidate, evaluations = [], finalDifficulty = 5, opts = {}) {
   const name = candidate?.name || "The candidate";
-  const skippedCount = (evaluations || []).filter((e) => e.skipped).length;
-  const overallScore = Math.max(40, Math.round(75 + finalDifficulty * 2 - skippedCount * 6));
+  const evals = evaluations || [];
+  const count = Math.max(1, evals.length);
+
+  const sumCorrectness = evals.reduce((acc, e) => acc + (e.technicalCorrectness || 5), 0);
+  const sumDepth = evals.reduce((acc, e) => acc + (e.depth || 5), 0);
+  const sumReasoning = evals.reduce((acc, e) => acc + (e.reasoning || 5), 0);
+  const sumComm = evals.reduce((acc, e) => acc + (e.communication || 5), 0);
+
+  const avgCorrectness = sumCorrectness / count;
+  const avgDepth = sumDepth / count;
+  const avgReasoning = sumReasoning / count;
+  const avgComm = sumComm / count;
+
+  const repeatedCount = evals.filter((e) => e.repeated).length;
+  const mismatchedCount = evals.filter((e) => e.mismatched).length;
+  const skippedCount = evals.filter((e) => e.skipped).length;
+
+  const baseEvalScore = Math.round(((avgCorrectness + avgDepth + avgReasoning + avgComm) / 4) * 10);
+  const penalty = repeatedCount * 14 + mismatchedCount * 8 + skippedCount * 12;
+  const overallScore = Math.max(15, Math.min(98, baseEvalScore - penalty));
 
   const gaps = candidate?.weakTopics && candidate.weakTopics.length > 0 ? [...candidate.weakTopics] : [
     "Advanced MCP tool exception recovery strategies",
     "Production RAG evaluation metrics (Context Recall & Answer Relevance)",
   ];
 
+  if (repeatedCount > 0) {
+    gaps.unshift(`Provided duplicate/repeated responses across ${repeatedCount} questions`);
+  }
+  if (mismatchedCount > 0) {
+    gaps.unshift(`Addressed off-topic material on ${mismatchedCount} questions`);
+  }
   if (skippedCount > 0) {
     gaps.unshift(`Uncovered foundational knowledge across ${skippedCount} skipped topics`);
   }
@@ -551,27 +618,30 @@ function generateFeedbackSummary(candidate, evaluations, finalDifficulty, opts =
     ? `completed ${Math.max(0, opts.answeredCount || 0)} of 8 questions before the 60-minute time limit expired`
     : "completed an 8-question adaptive technical interview";
 
+  let statusPhrase = "strong technical execution";
+  if (overallScore < 50) statusPhrase = "significant technical gaps and non-responsive submissions";
+  else if (overallScore < 75) statusPhrase = "some areas needing improvement and topic review";
+
   return {
-    summary: `${name} ${completion} covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${skippedCount > 0 ? "some areas needing review" : "strong technical execution"} and practical awareness.`,
-    strengths: candidate?.strengths && candidate.strengths.length > 0 ? candidate.strengths : [
-      "Structured problem solving & clear architectural explanations",
-      "Solid understanding of vector retrieval and RAG concepts",
-      "Effective communication of trade-offs under constraints",
+    summary: `${name} ${completion} covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${statusPhrase}.`,
+    strengths: (overallScore >= 50 && candidate?.strengths && candidate.strengths.length > 0) ? candidate.strengths : [
+      "Familiarity with cohort development workflow & setup",
+      "Willingness to participate in multi-turn technical assessments",
     ],
     gaps: Array.from(new Set(gaps)),
     next: [
-      "Review skipped modules and practice foundational implementation exercises",
+      "Review skipped or repeated modules and provide dedicated technical answers",
       "Build an automated evaluation suite using Ragas or TruLens",
-      "Implement robust retry logic for Model Context Protocol (MCP) tool execution",
+      "Practice structured problem breakdown for API and vector pipeline questions",
     ],
     competencyScores: {
-      knowledge: Math.min(98, Math.max(45, 72 + finalDifficulty * 2.5 - skippedCount * 5)),
-      accuracy: Math.min(95, Math.max(40, 70 + finalDifficulty * 2.6 - skippedCount * 6)),
-      communication: Math.max(50, 88 - skippedCount * 3),
-      confidence: Math.min(92, Math.max(40, 74 + finalDifficulty * 2 - skippedCount * 7)),
-      depth: Math.min(96, Math.max(35, 68 + finalDifficulty * 3 - skippedCount * 8)),
-      reasoning: Math.min(98, Math.max(45, 75 + finalDifficulty * 2.2 - skippedCount * 5)),
-      practical: Math.min(94, Math.max(40, 72 + finalDifficulty * 2.4 - skippedCount * 6)),
+      knowledge: Math.max(15, Math.min(98, Math.round(avgCorrectness * 10 - repeatedCount * 10 - skippedCount * 5))),
+      accuracy: Math.max(15, Math.min(98, Math.round(avgReasoning * 10 - mismatchedCount * 10))),
+      communication: Math.max(20, Math.min(98, Math.round(avgComm * 10 - repeatedCount * 5 - skippedCount * 5))),
+      confidence: Math.max(15, Math.min(98, Math.round(overallScore * 0.95))),
+      depth: Math.max(15, Math.min(98, Math.round(avgDepth * 10 - repeatedCount * 12))),
+      reasoning: Math.max(15, Math.min(98, Math.round(avgReasoning * 10 - mismatchedCount * 8))),
+      practical: Math.max(15, Math.min(98, Math.round(overallScore * 0.9))),
     },
     overallScore,
   };
@@ -778,9 +848,17 @@ async function runClientMockInterview(payload) {
   const settings = apiClient.getSettings();
   const category = isNonAnswer(payload.message) ? "SKIP" : "VALID_ANSWER";
 
-  session.messages.push({ role: "candidate", content: payload.message });
+  const previousAnswers = (session.messages || [])
+    .filter((m) => m.role === "candidate" && m.content !== payload.message)
+    .map((m) => m.content);
 
-  const evalResult = evaluateAnswerAndAdapt(payload.message, session.difficulty || 5);
+  const evalResult = evaluateAnswerAndAdapt(
+    payload.message,
+    session.currentTopic || "AI Engineering Core",
+    session.difficulty || 5,
+    previousAnswers
+  );
+
   session.evaluations = [...(session.evaluations || []), evalResult];
   session.difficulty = evalResult.newDifficulty;
 
@@ -820,7 +898,7 @@ Then ask Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic})
 ${historyText}
 
 The question candidate just answered was on topic "${answeredTopic}".
-Evaluate the candidate's last response in 1-2 brief sentences specifically for "${answeredTopic}". If their response is off-topic or mentions an unrelated topic, note the mismatch politely.
+Evaluate the candidate's last response in 1-2 brief sentences specifically for "${answeredTopic}". If their response is off-topic, repeated from a previous turn, or mentions an unrelated topic, note the issue politely without praising.
 Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.day} (${nextQ.topic}) at difficulty ${session.difficulty}/10. Ask an intelligent technical question exploring architecture or trade-offs.`;
 
       geminiReply = await callGeminiAPI(systemPrompt, payload.message, settings.geminiApiKey);
@@ -831,7 +909,7 @@ Then seamlessly transition to Question ${nextQNum} of 8 focusing on Day ${nextQ.
     } else if (skipped) {
       reply = `No problem at all — it's completely okay to pass on a specific topic. Let's move on to the next module.\n\nMoving to **Question ${nextQNum} of ${session.targetQuestions}** (Day ${nextQ.day}: ${nextQ.topic}):\n\n${nextQ.question}`;
     } else {
-      reply = generateNaturalFallbackReply(payload.message, answeredTopic, nextQNum, session.targetQuestions, nextQ);
+      reply = generateNaturalFallbackReply(payload.message, answeredTopic, nextQNum, session.targetQuestions, nextQ, evalResult);
     }
   }
 

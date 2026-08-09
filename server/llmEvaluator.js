@@ -180,7 +180,9 @@ Set skipped to false.`;
   }
 
   // Fallback Heuristic evaluation when no LLM API key is present
+  const cleanText = text.toLowerCase();
   const wordCount = text ? text.split(/\s+/).length : 0;
+
   let delta = 0;
   if (wordCount > 40) delta = 1;
   else if (wordCount < 15) delta = -1;
@@ -188,21 +190,24 @@ Set skipped to false.`;
   const newDifficulty = Math.max(1, Math.min(10, currentDifficulty + delta));
 
   return {
-    technicalCorrectness: Math.min(10, Math.max(4, Math.round(6 + delta * 1.5 + (wordCount > 50 ? 1 : 0)))),
-    depth: Math.min(10, Math.max(3, Math.round(5 + (wordCount > 60 ? 2 : 0)))),
-    reasoning: Math.min(10, Math.max(4, Math.round(6 + delta))),
-    communication: Math.min(10, Math.max(5, Math.round(wordCount > 20 ? 8 : 4))),
+    technicalCorrectness: Math.min(10, Math.max(4, 6 + delta * 1.5 + (wordCount > 50 ? 1 : 0))),
+    depth: Math.min(10, Math.max(3, 5 + (wordCount > 60 ? 2 : 0))),
+    reasoning: Math.min(10, Math.max(4, 6 + delta)),
+    communication: Math.min(10, Math.max(5, wordCount > 20 ? 8 : 4)),
     skipped: false,
+    repeated: false,
+    mismatched: false,
     newDifficulty,
     scoringMethod: "heuristic",
   };
 }
 
 // 2. Generate post-interview feedback summary (LLM + heuristic fallback)
-export async function generateFeedbackSummary(candidate, evaluations, finalDifficulty, opts = {}, messages = [], apiKey = null) {
+export async function generateFeedbackSummary(candidate, evaluations = [], finalDifficulty = 5, opts = {}, messages = [], apiKey = null) {
   const name = candidate?.name || "The candidate";
-  const skippedCount = (evaluations || []).filter((e) => e.skipped).length;
-  const hasAiScoring = (evaluations || []).some((e) => e.scoringMethod === "ai");
+  const evals = evaluations || [];
+  const count = Math.max(1, evals.length);
+  const hasAiScoring = evals.some((e) => e.scoringMethod === "ai");
 
   if (apiKey && messages.length > 0) {
     const transcriptText = messages
@@ -254,12 +259,35 @@ Return a structured JSON object with the following fields:
   }
 
   // Heuristic synthesis fallback
-  const overallScore = Math.max(40, Math.round(75 + finalDifficulty * 2 - skippedCount * 6));
+  const sumCorrectness = evals.reduce((acc, e) => acc + (e.technicalCorrectness || 5), 0);
+  const sumDepth = evals.reduce((acc, e) => acc + (e.depth || 5), 0);
+  const sumReasoning = evals.reduce((acc, e) => acc + (e.reasoning || 5), 0);
+  const sumComm = evals.reduce((acc, e) => acc + (e.communication || 5), 0);
+
+  const avgCorrectness = sumCorrectness / count;
+  const avgDepth = sumDepth / count;
+  const avgReasoning = sumReasoning / count;
+  const avgComm = sumComm / count;
+
+  const repeatedCount = evals.filter((e) => e.repeated).length;
+  const mismatchedCount = evals.filter((e) => e.mismatched).length;
+  const skippedCount = evals.filter((e) => e.skipped).length;
+
+  const baseEvalScore = Math.round(((avgCorrectness + avgDepth + avgReasoning + avgComm) / 4) * 10);
+  const penalty = repeatedCount * 14 + mismatchedCount * 8 + skippedCount * 12;
+  const overallScore = Math.max(15, Math.min(98, baseEvalScore - penalty));
+
   const gaps = candidate?.weakTopics && candidate.weakTopics.length > 0 ? [...candidate.weakTopics] : [
     "Advanced MCP tool exception recovery strategies",
     "Production RAG evaluation metrics (Context Recall & Answer Relevance)",
   ];
 
+  if (repeatedCount > 0) {
+    gaps.unshift(`Provided duplicate/repeated responses across ${repeatedCount} questions`);
+  }
+  if (mismatchedCount > 0) {
+    gaps.unshift(`Addressed off-topic material on ${mismatchedCount} questions`);
+  }
   if (skippedCount > 0) {
     gaps.unshift(`Uncovered foundational knowledge across ${skippedCount} skipped topics`);
   }
@@ -268,27 +296,30 @@ Return a structured JSON object with the following fields:
     ? `completed ${Math.max(0, opts.answeredCount || 0)} of 8 questions before the 60-minute time limit expired`
     : "completed an 8-question adaptive technical interview";
 
+  let statusPhrase = "strong technical execution";
+  if (overallScore < 50) statusPhrase = "significant technical gaps and non-responsive submissions";
+  else if (overallScore < 75) statusPhrase = "some areas needing improvement and topic review";
+
   return {
-    summary: `${name} ${completion} covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${skippedCount > 0 ? "some areas needing review" : "strong technical execution"} and practical awareness.`,
-    strengths: candidate?.strengths && candidate.strengths.length > 0 ? candidate.strengths : [
-      "Structured problem solving & clear architectural explanations",
-      "Solid understanding of vector retrieval and RAG concepts",
-      "Effective communication of trade-offs under constraints",
+    summary: `${name} ${completion} covering key AI Cohort modules. Overall readiness score is ${overallScore}%, displaying ${statusPhrase}.`,
+    strengths: (overallScore >= 50 && candidate?.strengths && candidate.strengths.length > 0) ? candidate.strengths : [
+      "Familiarity with cohort development workflow & setup",
+      "Willingness to participate in multi-turn technical assessments",
     ],
     gaps: Array.from(new Set(gaps)),
     next: [
-      "Review skipped modules and practice foundational implementation exercises",
+      "Review skipped or repeated modules and provide dedicated technical answers",
       "Build an automated evaluation suite using Ragas or TruLens",
-      "Implement robust retry logic for Model Context Protocol (MCP) tool execution",
+      "Practice structured problem breakdown for API and vector pipeline questions",
     ],
     competencyScores: {
-      knowledge: Math.min(98, Math.max(45, 72 + finalDifficulty * 2.5 - skippedCount * 5)),
-      accuracy: Math.min(95, Math.max(40, 70 + finalDifficulty * 2.6 - skippedCount * 6)),
-      communication: Math.max(50, 88 - skippedCount * 3),
-      confidence: Math.min(92, Math.max(40, 74 + finalDifficulty * 2 - skippedCount * 7)),
-      depth: Math.min(96, Math.max(35, 68 + finalDifficulty * 3 - skippedCount * 8)),
-      reasoning: Math.min(98, Math.max(45, 75 + finalDifficulty * 2.2 - skippedCount * 5)),
-      practical: Math.min(94, Math.max(40, 72 + finalDifficulty * 2.4 - skippedCount * 6)),
+      knowledge: Math.max(15, Math.min(98, Math.round(avgCorrectness * 10 - repeatedCount * 10 - skippedCount * 5))),
+      accuracy: Math.max(15, Math.min(98, Math.round(avgReasoning * 10 - mismatchedCount * 10))),
+      communication: Math.max(20, Math.min(98, Math.round(avgComm * 10 - repeatedCount * 5 - skippedCount * 5))),
+      confidence: Math.max(15, Math.min(98, Math.round(overallScore * 0.95))),
+      depth: Math.max(15, Math.min(98, Math.round(avgDepth * 10 - repeatedCount * 12))),
+      reasoning: Math.max(15, Math.min(98, Math.round(avgReasoning * 10 - mismatchedCount * 8))),
+      practical: Math.max(15, Math.min(98, Math.round(overallScore * 0.9))),
     },
     overallScore,
     scoringMethod: hasAiScoring ? "ai" : "heuristic",
